@@ -1,10 +1,12 @@
 {-# LANGUAGE TupleSections #-}
+
 module Main where
 
 import           Control.Monad
 import           Data.List
 import           Data.Maybe
 import           Data.Ord
+import           Data.Time.Clock
 import           System.IO
 
 data Direction
@@ -22,9 +24,9 @@ data Power
   deriving (Show)
 
 showPower PTorpedo = "TORPEDO"
-showPower PSonar = "SONAR"
+showPower PSonar   = "SONAR"
 showPower PSilence = "SILENCE"
-showPower PMine = "MINE"
+showPower PMine    = "MINE"
 
 type Coord = (Int, Int)
 
@@ -45,7 +47,7 @@ showOrder (Surface sector) = "SURFACE " ++ maybe "" show sector
 showOrder (Silence dirSize) = "SILENCE " ++ maybe "" (\(d, s) -> show d ++ " " ++ show s) dirSize
 showOrder (Sonar sector) = "SONAR " ++ maybe "" show sector
 showOrder (Mine dir) = "MINE " ++ maybe "" show dir
-showOrder (Trigger (x,y)) = "TRIGGER " ++ show x ++ " " ++ show y
+showOrder (Trigger (x, y)) = "TRIGGER " ++ show x ++ " " ++ show y
 
 splitOn :: (a -> Bool) -> [a] -> [[a]]
 splitOn _ [] = []
@@ -193,11 +195,8 @@ minByOption f xs = Just (minimumBy (comparing f) xs)
 oppConsidered = 5
 
 gameLoop :: [[Bool]] -> [Order] -> [Coord] -> IO ()
-gameLoop landMap oldOpponentHistory oldMyCoordHistory
---  debug "start game loop"
- = do
+gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   input_line <- getLine
---  debug ("fst line " ++ input_line)
   let input = words input_line
   let x = read (input !! 0) :: Int
   let y = read (input !! 1) :: Int
@@ -208,13 +207,10 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory
   let silencecooldown = read (input !! 6) :: Int
   let minecooldown = read (input !! 7) :: Int
   input_line <- getLine
---  debug ("snd line " ++ input_line)
   let sonarresult = input_line :: String
   opponentOrders <- getLine
-
-
-  let curCoord = (x,y)
-
+  startTime <- getCurrentTime
+  let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
   debug ("before opp " ++ show (map showOrder oldOpponentHistory))
@@ -256,9 +252,14 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory
           (_, _) -> Nothing
   let message = Msg (show (length opponentCandidates))
   let actions = moveAction : maybeToList torpedoAction ++ [message]
-  send (intercalate "|" (map showOrder actions))
-  gameLoop landMap opponentHistory endMyCoordHistory
-
+  let out = intercalate "|" (map showOrder actions)
+  endTime <- getCurrentTime
+  let elapsed = diffUTCTime endTime startTime
+  debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
+  send out
+  gameLoop landMap opponentHistory endMyCoordHistory--  debug "start game loop"
+--  debug ("fst line " ++ input_line)
+--  debug ("snd line " ++ input_line)
 main :: IO ()
 main = do
   hSetBuffering stdout NoBuffering -- DO NOT REMOVE
