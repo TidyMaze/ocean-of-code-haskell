@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Main where
 
 import           Control.Monad
@@ -160,11 +161,23 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (map com
     unvisitedWater (d, dest) = isWaterCoord landMap dest && notElem dest visited
     computeNeighbor d = (d, addDirToCoord c d)
 
+bfs :: Coord -> (Coord -> [Coord]) -> [(Coord, Int)]
+bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
+  where
+    aux :: Int -> [Coord] -> [Coord] -> [(Coord, Int)]
+    aux _ [] _ = []
+    aux depth (x:xs) seen = notVisitedNeighborsWithDist ++ aux (depth + 1) queue newSeen
+      where
+        notVisitedNeighbors = filter (`notElem` seen) (getNeighbors x)
+        notVisitedNeighborsWithDist = map (, depth) notVisitedNeighbors
+        queue = xs ++ notVisitedNeighbors
+        newSeen = seen ++ notVisitedNeighbors
+
 findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
     criteria (Just o) d = manhattan o d
-    criteria Nothing d = -length (getUnvisitedWaterNeighborsDir landMap d visited)
+    criteria Nothing d = -length (bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)))
 
 isSilence (Silence _) = True
 isSilence _           = False
