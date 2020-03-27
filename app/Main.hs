@@ -137,7 +137,11 @@ isWaterCoord landMap c@(x, y) = isInBoard c && not (landMap !! y !! x)
 getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe PTorpedo fst3 found
   where
     fst3 (a, b, c) = a
-    buyList = [(PTorpedo, torpedoCooldown, 3), (PSilence, silenceCooldown, 6), (PSonar, sonarCooldown, 4)]
+    buyList = [(PTorpedo, torpedoCooldown, 3)
+              ,(PSilence, silenceCooldown, 6)
+              ,(PSonar, sonarCooldown, 4)
+              ,(PMine, mineCooldown, 3)
+              ]
     found = find (\(power, count, max) -> count > 0) buyList :: Maybe (Power, Int, Int)
 
 allCoords = [(x, y) | x <- [0 .. 14], y <- [0 .. 14]]
@@ -183,7 +187,7 @@ bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
 findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
-    criteria (Just o) d = manhattan o d
+    criteria (Just o) d = manhattan o d -- TODO use a bfs to get to target quickly
     criteria Nothing d = if null coordDistances then 0 else -snd (maximumBy (comparing snd) coordDistances)
       where
         coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
