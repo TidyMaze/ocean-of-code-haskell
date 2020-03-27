@@ -187,8 +187,9 @@ bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
 findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
-    criteria (Just o) d = manhattan o d -- TODO use a bfs to get to target quickly
-    criteria Nothing d = if null coordDistances then 0 else -distanceToFarestCoord
+    criteria (Just o) d = (manhattan o d, byLonguestPath d) -- TODO use a bfs to get to target quickly
+    criteria Nothing d = (byLonguestPath d, 0)
+    byLonguestPath d = if null coordDistances then 0 else -distanceToFarestCoord
       where
         coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
         distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
@@ -204,7 +205,7 @@ cleanOppHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.3
+maxDev = 1.25
 torpedoRange = 4
 
 inTorpedoRange landMap from dest = manhattan from dest <= torpedoRange
