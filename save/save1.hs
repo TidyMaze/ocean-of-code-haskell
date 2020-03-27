@@ -1,5 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 
+-- 120 silver
+
 module Main where
 
 import           Control.Monad
@@ -119,12 +121,6 @@ diagDst (toX, toY) (fromX, fromY) = (dx + dy) - min dx dy
     dx = abs (fromX - toX)
     dy = abs (fromY - toY)
 
-baryMeanDev :: Fractional a => [Coord] -> Maybe (Coord, a)
-baryMeanDev [] = Nothing
-baryMeanDev coords = fmap (\b -> (b, fromIntegral (sum (map (diagDst b) coords)) / fromIntegral (length coords))) maybeB
-  where
-    maybeB = bary coords
-
 bary [] = Nothing
 bary coords = Just (avgX, avgY)
   where
@@ -160,7 +156,7 @@ buildPathFrom landMap history c = foldl execOrder (c, True) history
     execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
       where
         newC = addDirToCoord c direction
-    execOrder (c, true) (Torpedo t) = (c, manhattan t c <= 4) -- use BFS
+    execOrder (c, true) (Torpedo t) = (c, manhattan t c <= 4)
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
 
@@ -185,10 +181,10 @@ findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp 
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
     criteria (Just o) d = manhattan o d
-    criteria Nothing d = if null coordDistances then 0 else -snd (maximumBy (comparing snd) coordDistances)
-      where
-        coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
---    criteria Nothing d = -length (bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)))
+--    criteria Nothing d = if null coordDistances then 0 else -snd (maximumBy (comparing snd) coordDistances)
+--      where
+--        coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
+    criteria Nothing d = -length (bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)))
 
 isSilence (Silence _) = True
 isSilence _           = False
@@ -200,6 +196,8 @@ cleanOppHistory h =
 
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
+
+oppConsidered = 5
 
 gameLoop :: [[Bool]] -> [Order] -> [Coord] -> IO ()
 gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
@@ -227,14 +225,18 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
-  let opponentCandidates = findOpponentPositionFromHistory opponentHistory landMap
-
+  let opponentCandidates =
+        if length opponentHistory >= 3
+          then findOpponentPositionFromHistory opponentHistory landMap
+          else []
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
-  let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
-  debug ("I think you are at " ++ show maybeBaryWithMeanDev)
-  let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
+  let baryOpp =
+        if length opponentCandidates `elem` [1 .. oppConsidered]
+          then bary opponentCandidates
+          else Nothing
+  debug ("I think you are at " ++ show baryOpp)
+  let target = baryOpp >>= (\b -> minByOption (Just . manhattan b) waterCoords)
         where
-          baryFiltered = mfilter (\(b, dev) -> dev <= 2) maybeBaryWithMeanDev
           waterCoords = filter (isWaterCoord landMap) allCoords
   debug ("Closest waters is " ++ show target)
   let move = findMove landMap curCoord myCoordHistory target
@@ -249,7 +251,7 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   let torpedoAction =
         case (torpedocooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
-            where iCanShootSafely c = isWaterCoord landMap c && manhattan after c <= 4 && diagDst rt c <= 1 && diagDst c after > 1 -- use BFS
+            where iCanShootSafely c = isWaterCoord landMap c && manhattan after c <= 4 && diagDst rt c <= 1 && diagDst c after > 1
                   closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely allCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
