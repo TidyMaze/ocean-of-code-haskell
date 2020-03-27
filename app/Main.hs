@@ -147,19 +147,19 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findOpponentPositionFromHistory history waterCoords = map discardAlive (filter isAlive (map (buildPathFrom waterCoords history) allCoords))
+findOpponentPositionFromHistory history landMap = map discardAlive (filter isAlive (map (buildPathFrom landMap history) allCoords))
   where
     isAlive (_, alive) = alive
     discardAlive (c, alive) = c
 
-buildPathFrom :: [Coord] -> [Order] -> Coord -> (Coord, Bool)
-buildPathFrom waterCoords history c = foldl execOrder (c, True) history
+buildPathFrom :: [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
+buildPathFrom landMap history c = foldl execOrder (c, True) history
   where
     execOrder died@(_, False) _ = died
-    execOrder (c, true) (Move direction power) = (newC, newC `elem` waterCoords)
+    execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
       where
         newC = addDirToCoord c direction
-    execOrder (c, true) (Torpedo t) = (c, manhattan t c <= 4) -- use BFS
+    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange landMap c t) -- use BFS
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
 
@@ -187,7 +187,6 @@ findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp 
     criteria Nothing d = if null coordDistances then 0 else -snd (maximumBy (comparing snd) coordDistances)
       where
         coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
---    criteria Nothing d = -length (bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)))
 
 isSilence (Silence _) = True
 isSilence _           = False
@@ -233,7 +232,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
-  let opponentCandidates = findOpponentPositionFromHistory opponentHistory waterCoords
+  let opponentCandidates = findOpponentPositionFromHistory opponentHistory landMap
 
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
