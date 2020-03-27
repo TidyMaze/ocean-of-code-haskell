@@ -142,22 +142,21 @@ getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe
 
 allCoords = [(x, y) | x <- [0 .. 14], y <- [0 .. 14]]
 
-findStartCoord :: [[Bool]] -> Int -> Int -> Coord
-findStartCoord landMap width height = minimumBy (comparing byManhattanToCenter) waterCoords
+findStartCoord :: [Coord] -> Int -> Int -> Coord
+findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCenter) waterCoords
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
-    waterCoords = filter (isWaterCoord landMap) allCoords
 
-findOpponentPositionFromHistory history landMap = map discardAlive (filter isAlive (map (buildPathFrom landMap history) allCoords))
+findOpponentPositionFromHistory history waterCoords = map discardAlive (filter isAlive (map (buildPathFrom waterCoords history) allCoords))
   where
     isAlive (_, alive) = alive
     discardAlive (c, alive) = c
 
-buildPathFrom :: [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
-buildPathFrom landMap history c = foldl execOrder (c, True) history
+buildPathFrom :: [Coord] -> [Order] -> Coord -> (Coord, Bool)
+buildPathFrom waterCoords history c = foldl execOrder (c, True) history
   where
     execOrder died@(_, False) _ = died
-    execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
+    execOrder (c, true) (Move direction power) = (newC, newC `elem` waterCoords)
       where
         newC = addDirToCoord c direction
     execOrder (c, true) (Torpedo t) = (c, manhattan t c <= 4) -- use BFS
@@ -201,8 +200,15 @@ cleanOppHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-gameLoop :: [[Bool]] -> [Order] -> [Coord] -> IO ()
-gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
+maxDev = 1.3
+torpedoRange = 4
+
+inTorpedoRange landMap from dest = manhattan from dest <= torpedoRange
+
+inExplosionRange center dest = diagDst dest center <= 1
+
+gameLoop :: [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
+gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -227,15 +233,15 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
-  let opponentCandidates = findOpponentPositionFromHistory opponentHistory landMap
+  let opponentCandidates = findOpponentPositionFromHistory opponentHistory waterCoords
 
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
+
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
-          waterCoords = filter (isWaterCoord landMap) allCoords
   debug ("Closest waters is " ++ show target)
   let move = findMove landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
@@ -249,8 +255,9 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   let torpedoAction =
         case (torpedocooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
-            where iCanShootSafely c = isWaterCoord landMap c && manhattan after c <= 4 && diagDst rt c <= 1 && diagDst c after > 1 -- use BFS
-                  closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely allCoords)
+            where
+              iCanShootSafely c = inTorpedoRange landMap after c && inExplosionRange c rt && inExplosionRange c after -- use BFS
+              closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
   let message = Msg (show (length opponentCandidates))
@@ -260,9 +267,7 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send out
-  gameLoop landMap opponentHistory endMyCoordHistory--  debug "start game loop"
-
-maxDev = 1.3
+  gameLoop waterCoords landMap opponentHistory endMyCoordHistory--  debug "start game loop"
 
 main :: IO ()
 main = do
@@ -274,6 +279,7 @@ main = do
   let myid = read (input !! 2) :: Int
   landMap <- replicateM height $ map (== 'x') <$> getLine
   debug landMap
-  let (startX, startY) = findStartCoord landMap width height
+  let waterCoords = filter (isWaterCoord landMap) allCoords
+  let (startX, startY) = findStartCoord waterCoords width height
   send $ show startX ++ " " ++ show startY
-  gameLoop landMap [] []
+  gameLoop waterCoords landMap [] []
