@@ -188,9 +188,10 @@ findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp 
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
     criteria (Just o) d = manhattan o d -- TODO use a bfs to get to target quickly
-    criteria Nothing d = if null coordDistances then 0 else -snd (maximumBy (comparing snd) coordDistances)
+    criteria Nothing d = if null coordDistances then 0 else -distanceToFarestCoord
       where
         coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
+        distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
 
 isSilence (Silence _) = True
 isSilence _           = False
