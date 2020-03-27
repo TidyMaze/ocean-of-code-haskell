@@ -234,7 +234,7 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
         where
-          baryFiltered = mfilter (\(b, dev) -> dev <= 2) maybeBaryWithMeanDev
+          baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
           waterCoords = filter (isWaterCoord landMap) allCoords
   debug ("Closest waters is " ++ show target)
   let move = findMove landMap curCoord myCoordHistory target
@@ -261,8 +261,9 @@ gameLoop landMap oldOpponentHistory oldMyCoordHistory = do
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send out
   gameLoop landMap opponentHistory endMyCoordHistory--  debug "start game loop"
---  debug ("fst line " ++ input_line)
---  debug ("snd line " ++ input_line)
+
+maxDev = 1.3
+
 main :: IO ()
 main = do
   hSetBuffering stdout NoBuffering -- DO NOT REMOVE
