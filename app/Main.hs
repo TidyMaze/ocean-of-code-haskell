@@ -4,6 +4,7 @@ module Main where
 
 import           Control.Monad
 import           Data.List
+import qualified Data.Map        as Map
 import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
@@ -147,19 +148,19 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findOpponentPositionFromHistory history landMap = map discardAlive (filter isAlive (map (buildPathFrom landMap history) allCoords))
+findOpponentPositionFromHistory waterCoords history landMap = map discardAlive (filter isAlive (map (buildPathFrom waterCoords landMap history) allCoords))
   where
     isAlive (_, alive) = alive
     discardAlive (c, alive) = c
 
-buildPathFrom :: [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
-buildPathFrom landMap history c = foldl execOrder (c, True) history
+buildPathFrom :: [Coord] -> [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
+buildPathFrom waterCoords landMap history c = foldl execOrder (c, True) history
   where
     execOrder died@(_, False) _ = died
     execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
       where
         newC = addDirToCoord c direction
-    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange landMap c t) -- use BFS
+    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange waterCoords landMap c t) -- use BFS
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
 
@@ -173,32 +174,31 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
   where
     unvisitedWater (d, dest) = dest `notElem` visited
 
-updatedBfsStep depth xs seen getNeighbors x = (map (, depth) notVisitedNeighbors, xs ++ notVisitedNeighbors, seen ++ notVisitedNeighbors)
+bfs :: [Coord] -> (Coord -> [Coord]) -> Coord -> [(Coord, Int)]
+bfs waterCoords getNeighbors c = Map.toList (aux initDist initQ)
   where
-    notVisitedNeighbors = filter (`notElem` seen) (getNeighbors x)
-
-
-bfs :: Coord -> (Coord -> [Coord]) -> [(Coord, Int)]
-bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
-  where
-    aux :: Int -> [Coord] -> [Coord] -> [(Coord, Int)]
-    aux _ [] _ = []
-    aux depth (x:xs) seen = notVisitedNeighborsWithDist ++ aux (depth + 1) queue newSeen
+    initDist = Map.fromList [(c, 0)]
+    initQ = waterCoords
+    aux :: Map.Map Coord Int -> [Coord] -> Map.Map Coord Int
+    aux dist [] = dist
+    aux dist q = aux newDist updatedQ
       where
-        (notVisitedNeighborsWithDist, queue, newSeen) = updatedBfsStep depth xs seen getNeighbors x
+        u = minimumBy (comparing (\x -> fromMaybe 1000 (dist Map.!? x))) q :: Coord
+        updatedQ = filter (/= u) q
+        newDist = newValues `Map.union` dist
+        newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u)))
+        maybeAlt = fmap (+ 1) (dist Map.!? u) :: Maybe Int
+        findWhatToUpdate v =
+          case (maybeAlt, dist Map.!? v) of
+            (Just alt, Just old) -> Just (v, min alt old)
+            (Nothing, Just old) -> Nothing
+            (Just alt, Nothing) -> Just (v, alt)
+            (Nothing, Nothing) -> Nothing
 
+bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> [(Coord, Int)]
+bfsLimited limit waterCoords getNeighbors c = filter ((<= limit) . snd) (bfs waterCoords getNeighbors c)
 
-bfsLimited :: Int -> Coord -> (Coord -> [Coord]) -> [(Coord, Int)]
-bfsLimited limit c getNeighbors = (c, 0) : aux 1 [c] [c]
-  where
-    aux :: Int -> [Coord] -> [Coord] -> [(Coord, Int)]
-    aux _ [] _ = []
-    aux depth (x:xs) seen | depth == limit = aux (depth + 1) xs seen
-    aux depth (x:xs) seen = notVisitedNeighborsWithDist ++ aux (depth + 1) queue newSeen
-      where
-        (notVisitedNeighborsWithDist, queue, newSeen) = updatedBfsStep depth xs seen getNeighbors x
-
-findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
+findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
     criteria (Just o) d = (byLonguestPath d, manhattan o d) -- TODO use a bfs to get to target quickly
@@ -208,7 +208,7 @@ findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp 
         then 0
         else -distanceToFarestCoord
       where
-        coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
+        coordDistances = bfs waterCoords (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)) d
         distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
 
 isSilence (Silence _) = True
@@ -226,13 +226,21 @@ maxDev = 1.5
 
 torpedoRange = 4
 
-inTorpedoRange :: [[Bool]] -> Coord -> Coord -> Bool
-inTorpedoRange landMap from dest = dest `elem` coordsInRange
+getTorpedoRange :: [Coord] -> [[Bool]] -> Coord -> [(Coord, Int)]
+getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
   where
-    coordsInRange = map fst (bfsLimited torpedoRange from fn)
     fn = map snd . getWaterNeighbors landMap
 
+inTorpedoRange :: [Coord] -> [[Bool]] -> Coord -> Coord -> Bool
+inTorpedoRange waterCoords landMap from dest = dest `elem` map fst (getTorpedoRange waterCoords landMap from)
+
 inExplosionRange center dest = diagDst dest center <= 1
+
+newtype Precomputed =
+  Precomputed
+    { coordsInRange :: Map.Map Coord [(Coord, Int)]
+    }
+  deriving (Show)
 
 gameLoop :: [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
 gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
@@ -260,7 +268,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
-  let opponentCandidates = findOpponentPositionFromHistory opponentHistory landMap
+  let opponentCandidates = findOpponentPositionFromHistory waterCoords opponentHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
@@ -268,7 +276,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
   debug ("Closest waters is " ++ show target)
-  let move = findMove landMap curCoord myCoordHistory target
+  let move = findMove waterCoords landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
   let (moveAction, endMyCoordHistory, powerBought) =
         case (move, silencecooldown) of
@@ -285,7 +293,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   let torpedoAction =
         case (updatedTorpedoCooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
-            where iCanShootSafely c = inTorpedoRange landMap after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
+            where iCanShootSafely c = inTorpedoRange waterCoords landMap after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
                   closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
@@ -308,7 +316,11 @@ main = do
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
   landMap <- replicateM height $ map (== 'x') <$> getLine
-  let waterCoords = filter (isWaterCoord landMap) allCoords
+  let waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
+  let precomputed = Precomputed (Map.fromList mapping)
+        where
+          mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
+  debug (show precomputed)
   let (startX, startY) = findStartCoord waterCoords width height
   send $ show startX ++ " " ++ show startY
   gameLoop waterCoords landMap [] []
