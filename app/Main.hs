@@ -137,11 +137,7 @@ isWaterCoord landMap c@(x, y) = isInBoard c && not (landMap !! y !! x)
 getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe PTorpedo fst3 found
   where
     fst3 (a, b, c) = a
-    buyList = [(PTorpedo, torpedoCooldown, 3)
-              ,(PSilence, silenceCooldown, 6)
-              ,(PSonar, sonarCooldown, 4)
-              ,(PMine, mineCooldown, 3)
-              ]
+    buyList = [(PTorpedo, torpedoCooldown, 3), (PSilence, silenceCooldown, 6), (PSonar, sonarCooldown, 4), (PMine, mineCooldown, 3)]
     found = find (\(power, count, max) -> count > 0) buyList :: Maybe (Power, Int, Int)
 
 allCoords = [(x, y) | x <- [0 .. 14], y <- [0 .. 14]]
@@ -188,8 +184,11 @@ findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp 
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
     criteria (Just o) d = (manhattan o d, byLonguestPath d) -- TODO use a bfs to get to target quickly
-    criteria Nothing d = (byLonguestPath d, 0)
-    byLonguestPath d = if null coordDistances then 0 else -distanceToFarestCoord
+    criteria Nothing d  = (byLonguestPath d, 0)
+    byLonguestPath d =
+      if null coordDistances
+        then 0
+        else -distanceToFarestCoord
       where
         coordDistances = bfs d (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited))
         distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
@@ -205,7 +204,8 @@ cleanOppHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.25
+maxDev = 1.3
+
 torpedoRange = 4
 
 inTorpedoRange landMap from dest = manhattan from dest <= torpedoRange
@@ -239,30 +239,32 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
   let opponentCandidates = findOpponentPositionFromHistory opponentHistory landMap
-
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
-
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
   debug ("Closest waters is " ++ show target)
   let move = findMove landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
-  let (moveAction, endMyCoordHistory) =
+  let (moveAction, endMyCoordHistory, powerBought) =
         case (move, silencecooldown) of
-          (Just (d, to), 0) -> (Silence (Just (d, 1)), myCoordHistory)
-          (Just (d, to), _) -> (Move d (Just (getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown)), myCoordHistory)
-          (Nothing, _) -> (Surface Nothing, [])
+          (Just (d, to), 0) -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+          (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
+            where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
+          (Nothing, _) -> (Surface Nothing, [], Nothing)
   let after = maybe curCoord snd move
   debug ("reachableTarget is " ++ show target)
+  let updatedTorpedoCooldown =
+        case powerBought of
+          Just PTorpedo -> max (torpedocooldown - 1) 0
+          _             -> torpedocooldown
   let torpedoAction =
-        case (torpedocooldown, target) of
+        case (updatedTorpedoCooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
-            where
-              iCanShootSafely c = inTorpedoRange landMap after c && inExplosionRange c rt && inExplosionRange c after -- use BFS
-              closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
+            where iCanShootSafely c = inTorpedoRange landMap after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
+                  closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
   let message = Msg (show (length opponentCandidates))
@@ -272,7 +274,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send out
-  gameLoop waterCoords landMap opponentHistory endMyCoordHistory--  debug "start game loop"
+  gameLoop waterCoords landMap opponentHistory endMyCoordHistory --  debug "start game loop"
 
 main :: IO ()
 main = do
