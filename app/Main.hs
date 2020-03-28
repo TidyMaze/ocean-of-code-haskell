@@ -204,7 +204,7 @@ cleanOppHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.3
+maxDev = 1.5
 
 torpedoRange = 4
 
