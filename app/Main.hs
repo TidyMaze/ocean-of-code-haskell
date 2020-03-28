@@ -317,6 +317,7 @@ main = do
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
   landMap <- replicateM height $ map (== 'x') <$> getLine
+  startTime <- getCurrentTime
   let waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
   let precomputed = Precomputed (Map.fromList mapping)
         where
@@ -326,5 +327,8 @@ main = do
               fn = map snd . getWaterNeighbors landMap
 --  debug (show precomputed)
   let (startX, startY) = findStartCoord waterCoords width height
+  endTime <- getCurrentTime
+  let elapsed = diffUTCTime endTime startTime
+  debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
   gameLoop precomputed waterCoords landMap [] []
