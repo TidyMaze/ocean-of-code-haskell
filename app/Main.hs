@@ -124,14 +124,14 @@ baryMeanDev :: Fractional a => [Coord] -> Maybe (Coord, a)
 baryMeanDev [] = Nothing
 baryMeanDev coords = fmap (\b -> (b, fromIntegral (sum (map (diagDst b) coords)) / fromIntegral (length coords))) maybeB
   where
-    maybeB = bary coords
+    maybeB = fmap (\(bx, by) -> (round bx, round by)) (bary coords)
 
 bary [] = Nothing
 bary coords = Just (avgX, avgY)
   where
     size = length coords
-    avgX = sum (map fst coords) `div` size
-    avgY = sum (map snd coords) `div` size
+    avgX = fromIntegral (sum (map fst coords)) / fromIntegral size
+    avgY = fromIntegral (sum (map snd coords)) / fromIntegral size
 
 isWaterCoord landMap c@(x, y) = isInBoard c && not (landMap !! y !! x)
 
