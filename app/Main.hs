@@ -153,14 +153,14 @@ findOpponentPositionFromHistory waterCoords history landMap = map discardAlive (
     isAlive (_, alive) = alive
     discardAlive (c, alive) = c
 
-buildPathFrom :: [Coord] -> [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
-buildPathFrom waterCoords landMap history c = foldl execOrder (c, True) history
+buildPathFrom :: Precomputed -> [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
+buildPathFrom precomputed landMap history c = foldl execOrder (c, True) history
   where
     execOrder died@(_, False) _ = died
     execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
       where
         newC = addDirToCoord c direction
-    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange waterCoords landMap c t) -- use BFS
+    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
 
@@ -226,13 +226,10 @@ maxDev = 1.5
 
 torpedoRange = 4
 
-getTorpedoRange :: [Coord] -> [[Bool]] -> Coord -> [(Coord, Int)]
-getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
-  where
-    fn = map snd . getWaterNeighbors landMap
+getTorpedoRange precomputed from = fromMaybe [] (coordsInRange precomputed Map.!? from)
 
-inTorpedoRange :: [Coord] -> [[Bool]] -> Coord -> Coord -> Bool
-inTorpedoRange waterCoords landMap from dest = dest `elem` map fst (getTorpedoRange waterCoords landMap from)
+inTorpedoRange :: Precomputed -> Coord -> Coord -> Bool
+inTorpedoRange precomputed from dest = dest `elem` map fst (getTorpedoRange precomputed from)
 
 inExplosionRange center dest = diagDst dest center <= 1
 
@@ -242,8 +239,8 @@ newtype Precomputed =
     }
   deriving (Show)
 
-gameLoop :: [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
-gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
+gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
+gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -268,7 +265,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
   debug ("after opp " ++ show (map showOrder opponentHistory))
-  let opponentCandidates = findOpponentPositionFromHistory waterCoords opponentHistory landMap
+  let opponentCandidates = findOpponentPositionFromHistory precomputed opponentHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
@@ -293,7 +290,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   let torpedoAction =
         case (updatedTorpedoCooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
-            where iCanShootSafely c = inTorpedoRange waterCoords landMap after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
+            where iCanShootSafely c = inTorpedoRange precomputed after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
                   closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
@@ -305,7 +302,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   debug ("out is " ++ out)
   send out
-  gameLoop waterCoords landMap opponentHistory endMyCoordHistory --  debug "start game loop"
+  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory --  debug "start game loop"
 
 main :: IO ()
 main = do
@@ -320,7 +317,10 @@ main = do
   let precomputed = Precomputed (Map.fromList mapping)
         where
           mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
+          getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
+            where
+              fn = map snd . getWaterNeighbors landMap
   debug (show precomputed)
   let (startX, startY) = findStartCoord waterCoords width height
   send $ show startX ++ " " ++ show startY
-  gameLoop waterCoords landMap [] []
+  gameLoop precomputed waterCoords landMap [] []
