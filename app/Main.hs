@@ -174,7 +174,7 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
   where
     unvisitedWater (d, dest) = dest `notElem` visited
 
-bfs :: [Coord] -> (Coord -> [Coord]) -> Coord -> [(Coord, Int)]
+bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> [(Coord, Int)]
 bfs waterCoords getNeighbors c = Map.toList (aux initDist initQ)
   where
     initDist = Map.fromList [(c, 0)]
@@ -186,17 +186,22 @@ bfs waterCoords getNeighbors c = Map.toList (aux initDist initQ)
         u = minimumBy (comparing (\x -> fromMaybe 1000 (dist Map.!? x))) q :: Coord
         updatedQ = filter (/= u) q
         newDist = newValues `Map.union` dist
-        newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u)))
-        maybeAlt = fmap (+ 1) (dist Map.!? u) :: Maybe Int
+        du = dist Map.!? u
+        newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u du)))
+        maybeAlt = fmap (+ 1) du :: Maybe Int
         findWhatToUpdate v =
           case (maybeAlt, dist Map.!? v) of
             (Just alt, Just old) -> Just (v, min alt old)
-            (Nothing, Just old) -> Nothing
-            (Just alt, Nothing) -> Just (v, alt)
-            (Nothing, Nothing) -> Nothing
+            (Nothing, Just old)  -> Nothing
+            (Just alt, Nothing)  -> Just (v, alt)
+            (Nothing, Nothing)   -> Nothing
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> [(Coord, Int)]
-bfsLimited limit waterCoords getNeighbors c = filter ((<= limit) . snd) (bfs waterCoords getNeighbors c)
+bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
+  where
+    neighborsWithDist coord Nothing = []
+    neighborsWithDist coord (Just dist) | dist >= 4 = []
+    neighborsWithDist coord (Just dist) | dist < 4 = getNeighbors coord
 
 findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
@@ -208,7 +213,8 @@ findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> c
         then 0
         else -distanceToFarestCoord
       where
-        coordDistances = bfs waterCoords (\x -> map snd (getUnvisitedWaterNeighborsDir landMap x visited)) d
+        coordDistances = bfs waterCoords fn d
+        fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
         distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
 
 isSilence (Silence _) = True
