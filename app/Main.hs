@@ -326,7 +326,7 @@ main = do
           getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
             where
               fn = map snd . getWaterNeighbors landMap
-  debug (show precomputed)
+--  debug (show precomputed)
   let (startX, startY) = findStartCoord waterCoords width height
   send $ show startX ++ " " ++ show startY
   gameLoop precomputed waterCoords landMap [] []
