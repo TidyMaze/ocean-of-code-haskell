@@ -60,8 +60,8 @@ splitOn f l@(x:xs)
 splitEq :: Eq a => a -> [a] -> [[a]]
 splitEq e = splitOn (== e)
 
-debug :: (Show a) => a -> IO ()
-debug = hPrint stderr
+debug :: String -> IO ()
+debug = hPutStrLn stderr
 
 send :: String -> IO ()
 send = putStrLn
@@ -163,10 +163,20 @@ buildPathFrom landMap history c = foldl execOrder (c, True) history
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
 
-getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (map computeNeighbor [N, E, S, W])
+getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
+getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
   where
-    unvisitedWater (d, dest) = isWaterCoord landMap dest && notElem dest visited
     computeNeighbor d = (d, addDirToCoord c d)
+    neighbors = map computeNeighbor [N, E, S, W]
+
+getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWaterNeighbors landMap c)
+  where
+    unvisitedWater (d, dest) = dest `notElem` visited
+
+updatedBfsStep depth xs seen getNeighbors x = (map (, depth) notVisitedNeighbors, xs ++ notVisitedNeighbors, seen ++ notVisitedNeighbors)
+  where
+    notVisitedNeighbors = filter (`notElem` seen) (getNeighbors x)
+
 
 bfs :: Coord -> (Coord -> [Coord]) -> [(Coord, Int)]
 bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
@@ -175,10 +185,18 @@ bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
     aux _ [] _ = []
     aux depth (x:xs) seen = notVisitedNeighborsWithDist ++ aux (depth + 1) queue newSeen
       where
-        notVisitedNeighbors = filter (`notElem` seen) (getNeighbors x)
-        notVisitedNeighborsWithDist = map (, depth) notVisitedNeighbors
-        queue = xs ++ notVisitedNeighbors
-        newSeen = seen ++ notVisitedNeighbors
+        (notVisitedNeighborsWithDist, queue, newSeen) = updatedBfsStep depth xs seen getNeighbors x
+
+
+bfsLimited :: Int -> Coord -> (Coord -> [Coord]) -> [(Coord, Int)]
+bfsLimited limit c getNeighbors = (c, 0) : aux 1 [c] [c]
+  where
+    aux :: Int -> [Coord] -> [Coord] -> [(Coord, Int)]
+    aux _ [] _ = []
+    aux depth (x:xs) seen | depth == limit = aux (depth + 1) xs seen
+    aux depth (x:xs) seen = notVisitedNeighborsWithDist ++ aux (depth + 1) queue newSeen
+      where
+        (notVisitedNeighborsWithDist, queue, newSeen) = updatedBfsStep depth xs seen getNeighbors x
 
 findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
@@ -208,7 +226,11 @@ maxDev = 1.5
 
 torpedoRange = 4
 
-inTorpedoRange landMap from dest = manhattan from dest <= torpedoRange
+inTorpedoRange :: [[Bool]] -> Coord -> Coord -> Bool
+inTorpedoRange landMap from dest = dest `elem` coordsInRange
+  where
+    coordsInRange = map fst (bfsLimited torpedoRange from fn)
+    fn = map snd . getWaterNeighbors landMap
 
 inExplosionRange center dest = diagDst dest center <= 1
 
@@ -273,6 +295,7 @@ gameLoop waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
+  debug ("out is " ++ out)
   send out
   gameLoop waterCoords landMap opponentHistory endMyCoordHistory --  debug "start game loop"
 
@@ -285,7 +308,6 @@ main = do
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
   landMap <- replicateM height $ map (== 'x') <$> getLine
-  debug landMap
   let waterCoords = filter (isWaterCoord landMap) allCoords
   let (startX, startY) = findStartCoord waterCoords width height
   send $ show startX ++ " " ++ show startY
