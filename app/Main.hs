@@ -264,15 +264,13 @@ gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = 
   let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
-  debug ("before opp " ++ show (map showOrder oldOpponentHistory))
   let opponentHistory =
         cleanOppHistory
           (if opponentOrders == "NA"
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
-  debug ("after opp " ++ show (map showOrder opponentHistory))
   let opponentCandidates = findOpponentPositionFromHistory precomputed opponentHistory landMap
-  debug ("opp candidates (" ++ show (length opponentCandidates) ++ ") " ++ show opponentCandidates)
+  debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
