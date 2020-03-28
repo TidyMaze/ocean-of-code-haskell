@@ -183,7 +183,7 @@ bfs c getNeighbors = (c, 0) : aux 1 [c] [c]
 findMove landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
-    criteria (Just o) d = (manhattan o d, byLonguestPath d) -- TODO use a bfs to get to target quickly
+    criteria (Just o) d = (byLonguestPath d, manhattan o d) -- TODO use a bfs to get to target quickly
     criteria Nothing d  = (byLonguestPath d, 0)
     byLonguestPath d =
       if null coordDistances
