@@ -283,6 +283,17 @@ getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
     (0, Nothing) -> Nothing
     (_, _) -> Nothing
 
+groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
+groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
+
+getSonarAction :: Int -> [Coord] -> Maybe Order
+getSonarAction 0 [] = Nothing
+getSonarAction 0 candidates = Just (Sonar (Just (fst biggestSector)))
+  where
+    biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
+    countedCandidatesBySector = Map.assocs (Main.groupBy sectorFromCoord candidates)
+getSonarAction _ _ = Nothing
+
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory = do
   input_line <- getLine
@@ -329,12 +340,13 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           _             -> torpedocooldown
   debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
+  let !sonarAction = getSonarAction sonarcooldown opponentCandidates
   debug "after torpedo"
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
-  let !actions = moveAction : maybeToList torpedoAction ++ [message]
+  let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction ++ [message]
   let !myHistory = oldMyHistory ++ actions
   let !out = intercalate "|" (map showOrder actions)
   send out
