@@ -246,7 +246,7 @@ minByOption f xs = Just (minimumBy (comparing f) xs)
 
 maxDev = 1.5
 
-maxDevDef = 2.5
+maxDevDef = 3
 
 torpedoRange = 4
 
@@ -333,7 +333,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
-  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) " " ++ spentTime)
+  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let !actions = moveAction : maybeToList torpedoAction ++ [message]
   let !myHistory = oldMyHistory ++ actions
   let !out = intercalate "|" (map showOrder actions)
