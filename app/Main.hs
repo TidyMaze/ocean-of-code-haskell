@@ -209,7 +209,10 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
 findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
-    criteria (Just o) d = (byLonguestPath d, manhattan o d) -- TODO use a bfs to get to target quickly
+    criteria (Just o) d = (byLonguestPath d, fromMaybe 1000 (distancesToO Map.!? d))
+      where
+        distancesToO = bfs waterCoords fn o
+        fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
     criteria Nothing d  = (byLonguestPath d, 0)
     byLonguestPath d =
       if null coordDistances
