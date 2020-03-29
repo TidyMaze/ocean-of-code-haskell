@@ -167,11 +167,11 @@ buildPathFrom precomputed landMap history c = foldl execOrder (c, True) history
     execOrder state otherOrder = state
 
 toOpponentInput :: Coord -> Order -> Order
-toOpponentInput _ (Move d _) = Move d Nothing
+toOpponentInput _ (Move d _)      = Move d Nothing
 toOpponentInput coord (Surface _) = Surface (Just (sectorFromCoord coord))
-toOpponentInput _ (Silence _) = Silence Nothing
-toOpponentInput _ (Mine _) = Mine Nothing
-toOpponentInput _ other = other
+toOpponentInput _ (Silence _)     = Silence Nothing
+toOpponentInput _ (Mine _)        = Mine Nothing
+toOpponentInput _ other           = other
 
 getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
 getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
@@ -305,10 +305,8 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           else oldOpponentHistory ++ parseOrders opponentOrders
   let !opponentCandidates = findPositionFromHistory precomputed opponentHistory landMap
   let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
-
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
-
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
@@ -317,7 +315,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("Closest waters is " ++ show target)
   let move = findMove waterCoords landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
-  let (moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown
+  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown
   let after = maybe curCoord snd move
   debug ("reachableTarget is " ++ show target)
   let updatedTorpedoCooldown =
@@ -327,14 +325,13 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
   debug "after torpedo"
-  let message = Msg ("opp: " ++ show (length opponentCandidates) ++ " / mine: " ++ show (length myCandidates))
-  let !actions = moveAction : maybeToList torpedoAction ++ [message]
-  let myHistory = oldMyHistory ++ actions
-  let !out = intercalate "|" (map showOrder actions)
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
-  debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
-  debug ("out is " ++ out)
+  let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
+  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
+  let !actions = moveAction : maybeToList torpedoAction ++ [message]
+  let !myHistory = oldMyHistory ++ actions
+  let !out = intercalate "|" (map showOrder actions)
   send out
   gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory
 
