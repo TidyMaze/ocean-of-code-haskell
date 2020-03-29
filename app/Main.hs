@@ -279,7 +279,7 @@ gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = 
           (if opponentOrders == "NA"
              then oldOpponentHistory
              else oldOpponentHistory ++ parseOrders opponentOrders)
-  let opponentCandidates = findOpponentPositionFromHistory precomputed opponentHistory landMap
+  let !opponentCandidates = findOpponentPositionFromHistory precomputed opponentHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
@@ -296,16 +296,18 @@ gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = 
         case powerBought of
           Just PTorpedo -> max (torpedocooldown - 1) 0
           _             -> torpedocooldown
-  let torpedoAction =
+  debug "before torpedo"
+  let !torpedoAction =
         case (updatedTorpedoCooldown, target) of
           (0, Just rt) -> fmap Torpedo closestToTarget
             where iCanShootSafely c = inTorpedoRange precomputed after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
                   closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
+  debug "after torpedo"
   let message = Msg (show (length opponentCandidates))
-  let actions = moveAction : maybeToList torpedoAction ++ [message]
-  let out = intercalate "|" (map showOrder actions)
+  let !actions = moveAction : maybeToList torpedoAction ++ [message]
+  let !out = intercalate "|" (map showOrder actions)
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
