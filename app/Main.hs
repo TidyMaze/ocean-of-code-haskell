@@ -247,9 +247,9 @@ cleanHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.5
+maxDev = 2
 
-maxDevDef = 3
+maxDevDef = 4
 
 torpedoRange = 4
 
