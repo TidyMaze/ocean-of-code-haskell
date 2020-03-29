@@ -255,6 +255,18 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _) -> (Surface Nothing, [], Nothing)
 
+getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
+  case (updatedTorpedoCooldown, target) of
+    (0, Just realTarget) -> fmap Torpedo closestToTarget
+      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
+            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
+              where
+                iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
+                notGettingHurt = not (inExplosionRange closeTarget after)
+                hurtingEnemy = inExplosionRange closeTarget realTarget
+    (0, Nothing) -> Nothing
+    (_, _) -> Nothing
+
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory = do
   input_line <- getLine
@@ -297,19 +309,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           Just PTorpedo -> max (torpedocooldown - 1) 0
           _             -> torpedocooldown
   debug "before torpedo"
-  let !torpedoAction =
-        case (updatedTorpedoCooldown, target) of
-          (0, Just realTarget) -> fmap Torpedo closestToTarget
-            where
-              closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
-              iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
-                where
-                  iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
-                  notGettingHurt = not (inExplosionRange closeTarget after)
-                  hurtingEnemy = inExplosionRange closeTarget realTarget
-
-          (0, Nothing) -> Nothing
-          (_, _) -> Nothing
+  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
   debug "after torpedo"
   let message = Msg (show (length opponentCandidates))
   let !actions = moveAction : maybeToList torpedoAction ++ [message]
