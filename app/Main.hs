@@ -307,11 +307,13 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
-  let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
-  debug ("I think you are at " ++ show maybeBaryWithMeanDev)
+  let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
+  let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
+  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
+  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
-          baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
+          baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   debug ("Closest waters is " ++ show target)
   let move = findMove waterCoords landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
