@@ -323,10 +323,10 @@ main = do
   let width = read (input !! 0) :: Int
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
-  landMap <- replicateM height $ map (== 'x') <$> getLine
+  !landMap <- replicateM height $ map (== 'x') <$> getLine
   startTime <- getCurrentTime
-  let waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
-  let precomputed = Precomputed (Map.fromList mapping)
+  let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
+  let !precomputed = Precomputed (Map.fromList mapping)
         where
           mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
           getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
