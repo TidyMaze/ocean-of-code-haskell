@@ -1,10 +1,11 @@
+{-# LANGUAGE BangPatterns  #-}
 {-# LANGUAGE TupleSections #-}
 
 module Main where
 
 import           Control.Monad
 import           Data.List
-import qualified Data.Map.Strict        as Map
+import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
@@ -192,16 +193,18 @@ bfs waterCoords getNeighbors c = aux initDist initQ
         findWhatToUpdate v =
           case (maybeAlt, dist Map.!? v) of
             (Just alt, Just old) -> Just (v, min alt old)
-            (Nothing, Just old) -> Nothing
-            (Just alt, Nothing) -> Just (v, alt)
-            (Nothing, Nothing) -> Nothing
+            (Nothing, Just old)  -> Nothing
+            (Just alt, Nothing)  -> Just (v, alt)
+            (Nothing, Nothing)   -> Nothing
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
   where
     neighborsWithDist coord Nothing = []
-    neighborsWithDist coord (Just dist) | dist >= 4 = []
-    neighborsWithDist coord (Just dist) | dist < 4 = getNeighbors coord
+    neighborsWithDist coord (Just dist)
+      | dist >= 4 = []
+    neighborsWithDist coord (Just dist)
+      | dist < 4 = getNeighbors coord
 
 findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
@@ -245,6 +248,13 @@ newtype Precomputed =
     }
   deriving (Show)
 
+getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown =
+  case (move, silencecooldown) of
+    (Just (d, to), 0) -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+    (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
+      where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
+    (Nothing, _) -> (Surface Nothing, [], Nothing)
+
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
 gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
   input_line <- getLine
@@ -279,12 +289,7 @@ gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = 
   debug ("Closest waters is " ++ show target)
   let move = findMove waterCoords landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
-  let (moveAction, endMyCoordHistory, powerBought) =
-        case (move, silencecooldown) of
-          (Just (d, to), 0) -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
-          (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
-            where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
-          (Nothing, _) -> (Surface Nothing, [], Nothing)
+  let (moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown
   let after = maybe curCoord snd move
   debug ("reachableTarget is " ++ show target)
   let updatedTorpedoCooldown =
