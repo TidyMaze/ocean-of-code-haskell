@@ -149,7 +149,7 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findOpponentPositionFromHistory waterCoords history landMap = map discardAlive (filter isAlive (map (buildPathFrom waterCoords landMap cleanedHistory) allCoords))
+findPositionFromHistory waterCoords history landMap = map discardAlive (filter isAlive (map (buildPathFrom waterCoords landMap cleanedHistory) allCoords))
   where
     cleanedHistory = cleanHistory history
     isAlive (_, alive) = alive
@@ -159,12 +159,19 @@ buildPathFrom :: Precomputed -> [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
 buildPathFrom precomputed landMap history c = foldl execOrder (c, True) history
   where
     execOrder died@(_, False) _ = died
-    execOrder (c, true) (Move direction power) = (newC, isWaterCoord landMap newC)
+    execOrder (c, true) (Move direction _) = (newC, isWaterCoord landMap newC)
       where
         newC = addDirToCoord c direction
     execOrder (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
     execOrder state otherOrder = state
+
+toOpponentInput :: Coord -> Order -> Order
+toOpponentInput _ (Move d _) = Move d Nothing
+toOpponentInput coord (Surface _) = Surface (Just (sectorFromCoord coord))
+toOpponentInput _ (Silence _) = Silence Nothing
+toOpponentInput _ (Mine _) = Mine Nothing
+toOpponentInput _ other = other
 
 getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
 getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
@@ -273,8 +280,8 @@ getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
     (0, Nothing) -> Nothing
     (_, _) -> Nothing
 
-gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
-gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory = do
+gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> IO ()
+gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -296,8 +303,12 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
         if opponentOrders == "NA"
           then oldOpponentHistory
           else oldOpponentHistory ++ parseOrders opponentOrders
-  let !opponentCandidates = findOpponentPositionFromHistory precomputed opponentHistory landMap
+  let !opponentCandidates = findPositionFromHistory precomputed opponentHistory landMap
+  let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
+
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
+  debug ("my candidates (" ++ show (length myCandidates) ++ ")")
+
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
   let target = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
@@ -316,15 +327,16 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
   debug "after torpedo"
-  let message = Msg (show (length opponentCandidates))
+  let message = Msg ("opp: " ++ show (length opponentCandidates) ++ " / mine: " ++ show (length myCandidates))
   let !actions = moveAction : maybeToList torpedoAction ++ [message]
+  let myHistory = oldMyHistory ++ actions
   let !out = intercalate "|" (map showOrder actions)
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   debug ("out is " ++ out)
   send out
-  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory --  debug "start game loop"
+  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory
 
 main :: IO ()
 main = do
@@ -349,4 +361,4 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  gameLoop precomputed waterCoords landMap [] []
+  gameLoop precomputed waterCoords landMap [] [] []
