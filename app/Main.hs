@@ -39,6 +39,7 @@ data Order
   | Surface (Maybe Int)
   | Silence (Maybe (Direction, Int))
   | Sonar (Maybe Int)
+  | SonarResult Int Bool
   | Mine (Maybe Direction)
   | Trigger Coord
 
@@ -164,6 +165,8 @@ buildPathFrom precomputed landMap history c = foldl execOrder (c, True) history
         newC = addDirToCoord c direction
     execOrder (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
     execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
+    execOrder (c, true) (SonarResult sector True) = (c, sector == sectorFromCoord c)
+    execOrder (c, true) (SonarResult sector False) = (c, sector /= sectorFromCoord c)
     execOrder state otherOrder = state
 
 toOpponentInput :: Coord -> Order -> Order
@@ -294,8 +297,8 @@ getSonarAction 0 candidates = Just (Sonar (Just (fst biggestSector)))
     countedCandidatesBySector = Map.assocs (Main.groupBy sectorFromCoord candidates)
 getSonarAction _ _ = Nothing
 
-gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> IO ()
-gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory = do
+gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> Maybe Order -> IO ()
+gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -313,10 +316,16 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
+  let sonarResultAction =
+        lastSonarAction >>=
+        (\a ->
+           case a of
+             Sonar (Just sector) -> Just (SonarResult sector (sonarresult == "Y"))
+             _ -> Nothing)
   let opponentHistory =
         if opponentOrders == "NA"
-          then oldOpponentHistory
-          else oldOpponentHistory ++ parseOrders opponentOrders
+          then oldOpponentHistory ++ maybeToList sonarResultAction
+          else oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
   let !opponentCandidates = findPositionFromHistory precomputed opponentHistory landMap
   let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
@@ -350,7 +359,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let !myHistory = oldMyHistory ++ actions
   let !out = intercalate "|" (map showOrder actions)
   send out
-  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory
+  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory sonarAction
 
 main :: IO ()
 main = do
@@ -375,4 +384,4 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  gameLoop precomputed waterCoords landMap [] [] []
+  gameLoop precomputed waterCoords landMap [] [] [] Nothing
