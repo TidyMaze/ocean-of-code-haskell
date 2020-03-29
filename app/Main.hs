@@ -245,7 +245,8 @@ minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
 maxDev = 1.5
-maxDevDef = 2.2
+
+maxDevDef = 2.5
 
 torpedoRange = 4
 
@@ -264,7 +265,8 @@ newtype Precomputed =
 
 getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev =
   case (move, silencecooldown, maybeMyBaryWithMeanDev) of
-    (Just (d, to), 0, Just (b,dev)) | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+    (Just (d, to), 0, Just (b, dev))
+      | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
     (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, [], Nothing)
@@ -331,7 +333,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
-  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
+  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) " " ++ spentTime)
   let !actions = moveAction : maybeToList torpedoAction ++ [message]
   let !myHistory = oldMyHistory ++ actions
   let !out = intercalate "|" (map showOrder actions)
