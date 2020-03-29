@@ -261,12 +261,12 @@ newtype Precomputed =
     }
   deriving (Show)
 
-getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown =
-  case (move, silencecooldown) of
-    (Just (d, to), 0) -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
-    (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
+getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev =
+  case (move, silencecooldown, maybeMyBaryWithMeanDev) of
+    (Just (d, to), 0, Just (b,dev)) | dev <= maxDev -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+    (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
-    (Nothing, _) -> (Surface Nothing, [], Nothing)
+    (Nothing, _, _) -> (Surface Nothing, [], Nothing)
 
 getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
   case (updatedTorpedoCooldown, target) of
@@ -317,7 +317,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("Closest waters is " ++ show target)
   let move = findMove waterCoords landMap curCoord myCoordHistory target
   debug ("Move is " ++ show move)
-  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown
+  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let after = maybe curCoord snd move
   debug ("reachableTarget is " ++ show target)
   let updatedTorpedoCooldown =
