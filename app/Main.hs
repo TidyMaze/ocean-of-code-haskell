@@ -4,7 +4,7 @@ module Main where
 
 import           Control.Monad
 import           Data.List
-import qualified Data.Map        as Map
+import qualified Data.Map.Strict        as Map
 import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
@@ -174,8 +174,8 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
   where
     unvisitedWater (d, dest) = dest `notElem` visited
 
-bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> [(Coord, Int)]
-bfs waterCoords getNeighbors c = Map.toList (aux initDist initQ)
+bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
+bfs waterCoords getNeighbors c = aux initDist initQ
   where
     initDist = Map.fromList [(c, 0)]
     initQ = waterCoords
@@ -185,18 +185,18 @@ bfs waterCoords getNeighbors c = Map.toList (aux initDist initQ)
       where
         u = minimumBy (comparing (\x -> fromMaybe 1000 (dist Map.!? x))) q :: Coord
         updatedQ = filter (/= u) q
-        newDist = newValues `Map.union` dist
         du = dist Map.!? u
         newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u du)))
+        newDist = newValues `Map.union` dist
         maybeAlt = fmap (+ 1) du :: Maybe Int
         findWhatToUpdate v =
           case (maybeAlt, dist Map.!? v) of
             (Just alt, Just old) -> Just (v, min alt old)
-            (Nothing, Just old)  -> Nothing
-            (Just alt, Nothing)  -> Just (v, alt)
-            (Nothing, Nothing)   -> Nothing
+            (Nothing, Just old) -> Nothing
+            (Just alt, Nothing) -> Just (v, alt)
+            (Nothing, Nothing) -> Nothing
 
-bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> [(Coord, Int)]
+bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
   where
     neighborsWithDist coord Nothing = []
@@ -215,7 +215,7 @@ findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> c
       where
         coordDistances = bfs waterCoords fn d
         fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
-        distanceToFarestCoord = snd (maximumBy (comparing snd) coordDistances)
+        distanceToFarestCoord = snd (maximumBy (comparing snd) (Map.toList coordDistances))
 
 isSilence (Silence _) = True
 isSilence _           = False
@@ -232,16 +232,16 @@ maxDev = 1.5
 
 torpedoRange = 4
 
-getTorpedoRange precomputed from = fromMaybe [] (coordsInRange precomputed Map.!? from)
+getTorpedoRange precomputed from = fromMaybe Map.empty (coordsInRange precomputed Map.!? from)
 
 inTorpedoRange :: Precomputed -> Coord -> Coord -> Bool
-inTorpedoRange precomputed from dest = dest `elem` map fst (getTorpedoRange precomputed from)
+inTorpedoRange precomputed from dest = dest `Map.member` getTorpedoRange precomputed from
 
 inExplosionRange center dest = diagDst dest center <= 1
 
 newtype Precomputed =
   Precomputed
-    { coordsInRange :: Map.Map Coord [(Coord, Int)]
+    { coordsInRange :: Map.Map Coord (Map.Map Coord Int)
     }
   deriving (Show)
 
