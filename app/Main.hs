@@ -256,7 +256,7 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
     (Nothing, _) -> (Surface Nothing, [], Nothing)
 
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> IO ()
-gameLoop precomputed waterCoords landMap oldOpponentHistory oldMyCoordHistory = do
+gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
