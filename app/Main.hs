@@ -283,7 +283,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   let maybeBaryWithMeanDev = baryMeanDev opponentCandidates
   debug ("I think you are at " ++ show maybeBaryWithMeanDev)
-  let target = baryFiltered >>= (\(b, meanDev) -> minByOption (Just . manhattan b) waterCoords)
+  let target = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeBaryWithMeanDev
   debug ("Closest waters is " ++ show target)
@@ -299,9 +299,15 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug "before torpedo"
   let !torpedoAction =
         case (updatedTorpedoCooldown, target) of
-          (0, Just rt) -> fmap Torpedo closestToTarget
-            where iCanShootSafely c = inTorpedoRange precomputed after c && inExplosionRange c rt && not (inExplosionRange c after) -- use BFS
-                  closestToTarget = minByOption (manhattan rt) (filter iCanShootSafely waterCoords)
+          (0, Just realTarget) -> fmap Torpedo closestToTarget
+            where
+              closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
+              iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
+                where
+                  iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
+                  notGettingHurt = not (inExplosionRange closeTarget after)
+                  hurtingEnemy = inExplosionRange closeTarget realTarget
+
           (0, Nothing) -> Nothing
           (_, _) -> Nothing
   debug "after torpedo"
