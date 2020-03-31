@@ -124,8 +124,9 @@ diagDst (toX, toY) (fromX, fromY) = (dx + dy) - min dx dy
 
 baryMeanDev :: Fractional a => [Coord] -> Maybe (Coord, a)
 baryMeanDev [] = Nothing
-baryMeanDev coords = fmap (\b -> (b, fromIntegral (sum (map (diagDst b) coords)) / fromIntegral (length coords))) maybeB
+baryMeanDev coords = fmap (\b -> (b, fromIntegral (foldl' (distToB b) 0 coords) / fromIntegral (length coords))) maybeB
   where
+    distToB b a x = diagDst b x + a
     maybeB = fmap (\(bx, by) -> (round bx, round by)) (bary coords)
 
 bary [] = Nothing
@@ -150,22 +151,22 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findPositionFromHistory :: Precomputed -> [Order] -> [[Bool]] -> [Coord]
-findPositionFromHistory precomputed history landMap = foldl' (execOrderBulk precomputed landMap) allCoords history
+findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> [[Bool]] -> [Coord]
+findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) waterCoords history
 
 execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
-execOrderBulk precomputed landMap candidates action = nub (concatMap (execOrder precomputed landMap action) candidates)
+execOrderBulk !precomputed !landMap !candidates !action = nub (concatMap (execOrder precomputed landMap action) candidates)
 
 execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
 execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC]
   where
     newC = addDirToCoord c direction
-execOrder precomputed landMap (Torpedo t) c = [c | inTorpedoRange precomputed c t]
-execOrder _ landMap (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
-execOrder _ landMap (SonarResult sector True) c = [c | sector == sectorFromCoord c]
-execOrder _ landMap (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
-execOrder precomputed landMap (Silence _) c@(cX, cY) = filter (\(tx, ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
-execOrder _ landMap otherOrder state = [state]
+execOrder precomputed _ (Torpedo t) c = [c | inTorpedoRange precomputed c t]
+execOrder _ _ (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
+execOrder _ _ (SonarResult sector True) c = [c | sector == sectorFromCoord c]
+execOrder _ _ (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
+execOrder precomputed _ (Silence _) c@(cX, cY) = filter (\(tx, ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
+execOrder _ _ otherOrder state = [state]
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -326,8 +327,8 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
   let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
-  let !opponentCandidates = findPositionFromHistory precomputed opponentHistory landMap
-  let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
+  let !opponentCandidates = findPositionFromHistory precomputed waterCoords opponentHistory landMap
+  let !myCandidates = findPositionFromHistory precomputed waterCoords oldMyHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
