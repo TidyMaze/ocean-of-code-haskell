@@ -31,7 +31,10 @@ showPower PSonar   = "SONAR"
 showPower PSilence = "SILENCE"
 showPower PMine    = "MINE"
 
-type Coord = (Int, Int)
+data Coord = Coord {
+     x :: {-# UNPACK #-} !Int,
+     y :: {-# UNPACK #-} !Int
+  } deriving (Show, Eq, Ord)
 
 data Order
   = Move Direction (Maybe Power)
@@ -45,13 +48,13 @@ data Order
   | Trigger Coord
 
 showOrder (Move dir power) = "MOVE " ++ show dir ++ " " ++ maybe "" showPower power
-showOrder (Torpedo (x, y)) = "TORPEDO " ++ show x ++ " " ++ show y
+showOrder (Torpedo (Coord x y)) = "TORPEDO " ++ show x ++ " " ++ show y
 showOrder (Msg message) = "MSG " ++ message
 showOrder (Surface sector) = "SURFACE " ++ maybe "" show sector
 showOrder (Silence dirSize) = "SILENCE " ++ maybe "" (\(d, s) -> show d ++ " " ++ show s) dirSize
 showOrder (Sonar sector) = "SONAR " ++ maybe "" show sector
 showOrder (Mine dir) = "MINE " ++ maybe "" show dir
-showOrder (Trigger (x, y)) = "TRIGGER " ++ show x ++ " " ++ show y
+showOrder (Trigger (Coord x y)) = "TRIGGER " ++ show x ++ " " ++ show y
 
 splitOn :: (a -> Bool) -> [a] -> [[a]]
 splitOn _ [] = []
@@ -81,9 +84,9 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 
 parseMove rawDir = Move (read rawDir :: Direction) Nothing
 
-parseTorpedo rawX rawY = Torpedo (read rawX :: Int, read rawY :: Int)
+parseTorpedo rawX rawY = Torpedo (Coord (read rawX :: Int) (read rawY :: Int))
 
-parseTrigger rawX rawY = Trigger (read rawX :: Int, read rawY :: Int)
+parseTrigger rawX rawY = Trigger (Coord (read rawX :: Int) (read rawY :: Int))
 
 parseSurface rawSector = Surface (Just (read rawSector :: Int))
 
@@ -103,41 +106,45 @@ parseOrder o = process (preprocess o)
 
 parseOrders orderRaw = map parseOrder (splitEq '|' orderRaw)
 
-sectorFromCoord (x, y) = y `div` 5 * 3 + x `div` 5 + 1
+sectorFromCoord (Coord x y) = y `div` 5 * 3 + x `div` 5 + 1
+{-# INLINE sectorFromCoord #-}
 
-addDirToCoord (x, y) dir = (x + oX, y + oY)
-  where
-    (oX, oY) = getOffset dir
+addDirToCoord (Coord x y) dir = Coord (x + oX) (y + oY) where (oX, oY) = getOffset dir
+{-# INLINE addDirToCoord #-}
 
 getOffset N = (0, -1)
 getOffset S = (0, 1)
 getOffset W = (-1, 0)
 getOffset E = (1, 0)
+{-# INLINE getOffset #-}
 
-isInBoard (x, y) = y >= 0 && y < 15 && x >= 0 && x < 15
+isInBoard (Coord x y) = y >= 0 && y < 15 && x >= 0 && x < 15
+{-# INLINE isInBoard #-}
 
-manhattan (toX, toY) (fromX, fromY) = abs (toX - fromX) + abs (toY - fromY)
+manhattan to from = abs (x to - x from) + abs (y to - y from)
+{-# INLINE manhattan #-}
 
-diagDst (toX, toY) (fromX, fromY) = (dx + dy) - min dx dy
+diagDst to from = (dx + dy) - min dx dy
   where
-    dx = abs (fromX - toX)
-    dy = abs (fromY - toY)
+    dx = abs (x from - x to)
+    dy = abs (y from - y to)
+{-# INLINE diagDst #-}
 
 baryMeanDev :: Fractional a => [Coord] -> Maybe (Coord, a)
 baryMeanDev [] = Nothing
 baryMeanDev coords = fmap (\b -> (b, fromIntegral (foldl' (distToB b) 0 coords) / fromIntegral (length coords))) maybeB
   where
     distToB b a x = diagDst b x + a
-    maybeB = fmap (\(bx, by) -> (round bx, round by)) (bary coords)
+    maybeB = fmap (\(bx, by) -> Coord (round bx) (round by)) (bary coords)
 
 bary [] = Nothing
 bary coords = Just (avgX, avgY)
   where
     size = length coords
-    avgX = fromIntegral (sum (map fst coords)) / fromIntegral size
-    avgY = fromIntegral (sum (map snd coords)) / fromIntegral size
+    avgX = fromIntegral (sum (map x coords)) / fromIntegral size
+    avgY = fromIntegral (sum (map y coords)) / fromIntegral size
 
-isWaterCoord landMap c@(x, y) = isInBoard c && not (landMap !! y !! x)
+isWaterCoord landMap c = isInBoard c && not (landMap !! y c !! x c)
 
 getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe PTorpedo fst3 found
   where
@@ -145,12 +152,12 @@ getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe
     buyList = [(PTorpedo, torpedoCooldown, 3), (PSilence, silenceCooldown, 6), (PSonar, sonarCooldown, 4), (PMine, mineCooldown, 3)]
     found = find (\(power, count, max) -> count > 0) buyList :: Maybe (Power, Int, Int)
 
-allCoords = [(x, y) | x <- [0 .. 14], y <- [0 .. 14]]
+allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
 
 findStartCoord :: [Coord] -> Int -> Int -> Coord
 findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCenter) waterCoords
   where
-    byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
+    byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
 findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> [[Bool]] -> [Coord]
 findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) waterCoords history
@@ -166,7 +173,7 @@ execOrder precomputed _ (Torpedo t) c = if inTorpedoRange precomputed c t then [
 execOrder _ _ (Surface (Just sector)) c = if sector == sectorFromCoord c then [c] else []
 execOrder _ _ (SonarResult sector True) c = if sector == sectorFromCoord c then [c] else []
 execOrder _ _ (SonarResult sector False) c = if sector /= sectorFromCoord c then [c] else []
-execOrder precomputed _ (Silence _) c@(cX, cY) = filter (\(tx, ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
+execOrder precomputed _ (Silence _) c@(Coord cX cY) = filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ _ otherOrder state = [state]
 
 toOpponentInput :: Coord -> Order -> Order
@@ -328,7 +335,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let sonarresult = input_line :: String
   opponentOrders <- getLine
   startTime <- getCurrentTime
-  let curCoord = (x, y)
+  let curCoord = Coord x y
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = Set.insert curCoord oldMyCoordHistory
   let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
@@ -388,7 +395,7 @@ main = do
             where
               fn = map snd . getWaterNeighbors landMap
 --  debug (show precomputed)
-  let (startX, startY) = findStartCoord waterCoords width height
+  let Coord startX startY = findStartCoord waterCoords width height
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
