@@ -307,6 +307,11 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
 buildNewOpponentHistory oldOpponentHistory sonarResultAction "NA" = oldOpponentHistory ++ maybeToList sonarResultAction
 buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
 
+getElapsedTime startTime = do
+  endTime <- getCurrentTime
+  let elapsed = diffUTCTime endTime startTime
+  return (show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms")
+
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> Set.Set Coord -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
@@ -331,10 +336,15 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("history " ++ show (length myCoordHistory) ++ " " ++ show (length opponentHistory))
 
   let !opponentCandidates = findPositionFromHistory precomputed waterCoords opponentHistory landMap
-  let !myCandidates = findPositionFromHistory precomputed waterCoords oldMyHistory landMap
-
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
+  spentTime1 <- getElapsedTime startTime
+  debug ("opp: " ++ spentTime1)
+
+  let !myCandidates = findPositionFromHistory precomputed waterCoords oldMyHistory landMap
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
+  spentTime2 <- getElapsedTime startTime
+  debug ("me: " ++ spentTime2)
+
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
@@ -352,9 +362,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           _             -> torpedocooldown
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
   let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
-  endTime <- getCurrentTime
-  let elapsed = diffUTCTime endTime startTime
-  let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
+  spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction ++ [message]
   let !myHistory = oldMyHistory ++ actions
