@@ -220,10 +220,10 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
 findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
+    fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
     criteria (Just o) d = (byLonguestPath d, fromMaybe 1000 (distancesToO Map.!? d))
       where
         distancesToO = bfs waterCoords fn o
-        fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
     criteria Nothing d = (byLonguestPath d, 0)
     byLonguestPath d =
       if null coordDistances
@@ -231,7 +231,6 @@ findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> c
         else -distanceToFarestCoord
       where
         coordDistances = bfs waterCoords fn d
-        fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
         distanceToFarestCoord = snd (maximumBy (comparing snd) (Map.toList coordDistances))
 
 isSilence (Silence _) = True
@@ -336,21 +335,19 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  let target = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
+  let closestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  debug ("Closest waters is " ++ show target)
-  let move = findMove waterCoords landMap curCoord myCoordHistory target
-  debug ("Move is " ++ show move)
+  let move = findMove waterCoords landMap curCoord myCoordHistory closestWaterTarget
+  debug ("Closest waters is " ++ show closestWaterTarget ++ " and I can get closer with move " ++ show move)
   let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let after = maybe curCoord snd move
-  debug ("reachableTarget is " ++ show target)
   let updatedTorpedoCooldown =
         case powerBought of
           Just PTorpedo -> max (torpedocooldown - 1) 0
           _             -> torpedocooldown
   debug "before torpedo"
-  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
+  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
   let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
   debug "after torpedo"
   endTime <- getCurrentTime
