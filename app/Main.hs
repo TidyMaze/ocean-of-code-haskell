@@ -151,10 +151,10 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
 findPositionFromHistory :: Precomputed -> [Order] -> [[Bool]] -> [Coord]
-findPositionFromHistory precomputed history landMap = foldl (execOrderBulk precomputed landMap) allCoords (cleanHistory history)
+findPositionFromHistory precomputed history landMap = foldl (execOrderBulk precomputed landMap) allCoords history
 
 execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
-execOrderBulk precomputed landMap candidates action = concatMap (execOrder precomputed landMap action) candidates
+execOrderBulk precomputed landMap candidates action = nub (concatMap (execOrder precomputed landMap action) candidates)
 
 execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
 execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC]
@@ -234,12 +234,12 @@ findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> c
 isSilence (Silence _) = True
 isSilence _           = False
 
-cleanHistory h =
-  case splitted of
-    [] -> []
-    xs -> last xs
-  where
-    splitted = splitOn isSilence h
+--cleanHistory h =
+--  case splitted of
+--    [] -> []
+--    xs -> last xs
+--  where
+--    splitted = splitOn isSilence h
 
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
