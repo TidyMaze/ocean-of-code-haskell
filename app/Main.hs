@@ -351,7 +351,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           _             -> torpedocooldown
   debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
-  let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeMyBaryWithMeanDev
+  let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
   debug "after torpedo"
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
