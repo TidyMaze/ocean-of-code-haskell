@@ -164,7 +164,7 @@ execOrder precomputed landMap (Torpedo t) c = [c | inTorpedoRange precomputed c 
 execOrder _ landMap (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
 execOrder _ landMap (SonarResult sector True) c = [c | sector == sectorFromCoord c]
 execOrder _ landMap (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
-execOrder precomputed landMap (Silence _) c@(cX, cY) = filter (\(tx, ty) -> tx == cX || ty == cY) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
+execOrder precomputed landMap (Silence _) c@(cX, cY) = filter (\(tx, ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ landMap otherOrder state = [state]
 
 toOpponentInput :: Coord -> Order -> Order
