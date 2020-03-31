@@ -305,6 +305,9 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
     parseNew (Sonar (Just sector)) = Just (SonarResult sector (sonarResult == "Y"))
     parseNew _ = Nothing
 
+buildNewOpponentHistory oldOpponentHistory sonarResultAction "NA" = oldOpponentHistory ++ maybeToList sonarResultAction
+buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
+
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
@@ -324,11 +327,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
-  let sonarResultAction = parseSonarResult lastSonarAction sonarresult
-  let opponentHistory =
-        if opponentOrders == "NA"
-          then oldOpponentHistory ++ maybeToList sonarResultAction
-          else oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
+  let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
   let !opponentCandidates = findPositionFromHistory precomputed opponentHistory landMap
   let !myCandidates = findPositionFromHistory precomputed oldMyHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
