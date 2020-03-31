@@ -157,11 +157,14 @@ execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
 execOrderBulk precomputed landMap candidates action = concatMap (execOrder precomputed landMap action) candidates
 
 execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
-execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC] where newC = addDirToCoord c direction
+execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC]
+  where
+    newC = addDirToCoord c direction
 execOrder precomputed landMap (Torpedo t) c = [c | inTorpedoRange precomputed c t]
 execOrder _ landMap (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
 execOrder _ landMap (SonarResult sector True) c = [c | sector == sectorFromCoord c]
 execOrder _ landMap (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
+execOrder precomputed landMap (Silence _) c@(cX, cY) = filter (\(tx, ty) -> tx == cX || ty == cY) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ landMap otherOrder state = [state]
 
 toOpponentInput :: Coord -> Order -> Order
