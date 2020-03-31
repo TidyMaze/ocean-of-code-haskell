@@ -150,25 +150,19 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findPositionFromHistory waterCoords history landMap = (map discardAlive . filter isAlive . map applyPath) allCoords
+findPositionFromHistory precomputed history landMap = (map fst . filter snd . map applyPath) allCoords
   where
-    applyPath = buildPathFrom waterCoords landMap cleanedHistory
-    cleanedHistory = cleanHistory history
-    isAlive (_, alive) = alive
-    discardAlive (c, alive) = c
+    applyPath c = foldl (execOrder precomputed landMap) (c, True) (cleanHistory history)
 
-buildPathFrom :: Precomputed -> [[Bool]] -> [Order] -> Coord -> (Coord, Bool)
-buildPathFrom precomputed landMap history c = foldl execOrder (c, True) history
+execOrder _ landMap died@(_, False) _ = died
+execOrder _ landMap (c, true) (Move direction _) = (newC, isWaterCoord landMap newC)
   where
-    execOrder died@(_, False) _ = died
-    execOrder (c, true) (Move direction _) = (newC, isWaterCoord landMap newC)
-      where
-        newC = addDirToCoord c direction
-    execOrder (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
-    execOrder (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
-    execOrder (c, true) (SonarResult sector True) = (c, sector == sectorFromCoord c)
-    execOrder (c, true) (SonarResult sector False) = (c, sector /= sectorFromCoord c)
-    execOrder state otherOrder = state
+    newC = addDirToCoord c direction
+execOrder precomputed landMap (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
+execOrder _ landMap (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
+execOrder _ landMap (c, true) (SonarResult sector True) = (c, sector == sectorFromCoord c)
+execOrder _ landMap (c, true) (SonarResult sector False) = (c, sector /= sectorFromCoord c)
+execOrder _ landMap state otherOrder = state
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
