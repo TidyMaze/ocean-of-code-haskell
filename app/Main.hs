@@ -247,7 +247,7 @@ cleanHistory h =
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.2
+maxDev = 1.5
 
 maxDevDef = 4.5
 
@@ -289,13 +289,20 @@ getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
 groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
 groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
 
-getSonarAction :: Int -> [Coord] -> Maybe Order
-getSonarAction 0 [] = Nothing
-getSonarAction 0 candidates = Just (Sonar (Just (fst biggestSector)))
+getSonarAction :: Int -> [Coord] -> Maybe (Coord, Double) -> Maybe Order
+getSonarAction cooldown _ _ | cooldown > 0 = Nothing
+getSonarAction _ [] _ = Nothing
+getSonarAction _ _ Nothing = Nothing
+getSonarAction _ _ (Just (_, dev)) | dev >= 3 = Nothing
+getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
     countedCandidatesBySector = Map.assocs (Main.groupBy sectorFromCoord candidates)
-getSonarAction _ _ = Nothing
+
+parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
+  where
+    parseNew (Sonar (Just sector)) = Just (SonarResult sector (sonarResult == "Y"))
+    parseNew _ = Nothing
 
 gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
@@ -316,12 +323,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
   let myCoordHistory = oldMyCoordHistory ++ [curCoord]
-  let sonarResultAction =
-        lastSonarAction >>=
-        (\a ->
-           case a of
-             Sonar (Just sector) -> Just (SonarResult sector (sonarresult == "Y"))
-             _ -> Nothing)
+  let sonarResultAction = parseSonarResult lastSonarAction sonarresult
   let opponentHistory =
         if opponentOrders == "NA"
           then oldOpponentHistory ++ maybeToList sonarResultAction
@@ -349,7 +351,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
           _             -> torpedocooldown
   debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after
-  let !sonarAction = getSonarAction sonarcooldown opponentCandidates
+  let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeMyBaryWithMeanDev
   debug "after torpedo"
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
