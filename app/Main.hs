@@ -289,10 +289,12 @@ groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
 groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
 
 getSonarAction :: Int -> [Coord] -> Maybe (Coord, Double) -> Maybe Order
-getSonarAction cooldown _ _ | cooldown > 0 = Nothing
+getSonarAction cooldown _ _
+  | cooldown > 0 = Nothing
 getSonarAction _ [] _ = Nothing
 getSonarAction _ _ Nothing = Nothing
-getSonarAction _ _ (Just (_, dev)) | dev <= 1.5 = Nothing
+getSonarAction _ _ (Just (_, dev))
+  | dev <= 1.5 = Nothing
 getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
@@ -346,10 +348,8 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
         case powerBought of
           Just PTorpedo -> max (torpedocooldown - 1) 0
           _             -> torpedocooldown
-  debug "before torpedo"
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
   let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
-  debug "after torpedo"
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   let spentTime = show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms"
