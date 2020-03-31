@@ -293,7 +293,7 @@ getSonarAction :: Int -> [Coord] -> Maybe (Coord, Double) -> Maybe Order
 getSonarAction cooldown _ _ | cooldown > 0 = Nothing
 getSonarAction _ [] _ = Nothing
 getSonarAction _ _ Nothing = Nothing
-getSonarAction _ _ (Just (_, dev)) | dev >= 3 = Nothing
+getSonarAction _ _ (Just (_, dev)) | dev <= 1.5 = Nothing
 getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
