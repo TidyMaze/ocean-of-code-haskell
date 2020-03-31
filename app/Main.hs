@@ -150,19 +150,19 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findPositionFromHistory precomputed history landMap = (map fst . filter snd . map applyPath) allCoords
-  where
-    applyPath c = foldl (execOrder precomputed landMap) (c, True) (cleanHistory history)
+findPositionFromHistory :: Precomputed -> [Order] -> [[Bool]] -> [Coord]
+findPositionFromHistory precomputed history landMap = foldl (execOrderBulk precomputed landMap) allCoords (cleanHistory history)
 
-execOrder _ landMap died@(_, False) _ = died
-execOrder _ landMap (c, true) (Move direction _) = (newC, isWaterCoord landMap newC)
-  where
-    newC = addDirToCoord c direction
-execOrder precomputed landMap (c, true) (Torpedo t) = (c, inTorpedoRange precomputed c t) -- use BFS
-execOrder _ landMap (c, true) (Surface (Just sector)) = (c, sector == sectorFromCoord c)
-execOrder _ landMap (c, true) (SonarResult sector True) = (c, sector == sectorFromCoord c)
-execOrder _ landMap (c, true) (SonarResult sector False) = (c, sector /= sectorFromCoord c)
-execOrder _ landMap state otherOrder = state
+execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
+execOrderBulk precomputed landMap candidates action = concatMap (execOrder precomputed landMap action) candidates
+
+execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
+execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC] where newC = addDirToCoord c direction
+execOrder precomputed landMap (Torpedo t) c = [c | inTorpedoRange precomputed c t]
+execOrder _ landMap (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
+execOrder _ landMap (SonarResult sector True) c = [c | sector == sectorFromCoord c]
+execOrder _ landMap (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
+execOrder _ landMap otherOrder state = [state]
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
