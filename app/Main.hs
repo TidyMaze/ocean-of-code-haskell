@@ -151,7 +151,7 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
 findPositionFromHistory :: Precomputed -> [Order] -> [[Bool]] -> [Coord]
-findPositionFromHistory precomputed history landMap = foldl (execOrderBulk precomputed landMap) allCoords history
+findPositionFromHistory precomputed history landMap = foldl' (execOrderBulk precomputed landMap) allCoords history
 
 execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
 execOrderBulk precomputed landMap candidates action = nub (concatMap (execOrder precomputed landMap action) candidates)
