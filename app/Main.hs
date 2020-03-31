@@ -150,8 +150,9 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (width `div` 2, height `div` 2)
 
-findPositionFromHistory waterCoords history landMap = map discardAlive (filter isAlive (map (buildPathFrom waterCoords landMap cleanedHistory) allCoords))
+findPositionFromHistory waterCoords history landMap = (map discardAlive . filter isAlive . map applyPath) allCoords
   where
+    applyPath = buildPathFrom waterCoords landMap cleanedHistory
     cleanedHistory = cleanHistory history
     isAlive (_, alive) = alive
     discardAlive (c, alive) = c
