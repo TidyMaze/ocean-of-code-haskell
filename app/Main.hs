@@ -6,6 +6,7 @@ module Main where
 import           Control.Monad
 import           Data.List
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
@@ -191,8 +192,8 @@ bfs waterCoords getNeighbors c = aux initDist initQ
     initDist = Map.fromList [(c, 0)]
     initQ = waterCoords
     aux :: Map.Map Coord Int -> [Coord] -> Map.Map Coord Int
-    aux dist [] = dist
-    aux dist q = aux newDist updatedQ
+    aux !dist [] = dist
+    aux !dist !q = aux newDist updatedQ
       where
         u = minimumBy (comparing (\x -> fromMaybe 1000 (dist Map.!? x))) q :: Coord
         updatedQ = filter (/= u) q
@@ -266,11 +267,10 @@ newtype Precomputed =
 
 getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev =
   case (move, silencecooldown, maybeMyBaryWithMeanDev) of
-    (Just (d, to), 0, Just (b, dev))
-      | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+    (Just (d, to), 0, Just (b, dev)) | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
     (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
-    (Nothing, _, _) -> (Surface Nothing, [], Nothing)
+    (Nothing, _, _) -> (Surface Nothing, Set.empty, Nothing)
 
 getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
   case (updatedTorpedoCooldown, target) of
@@ -307,7 +307,7 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
 buildNewOpponentHistory oldOpponentHistory sonarResultAction "NA" = oldOpponentHistory ++ maybeToList sonarResultAction
 buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
 
-gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> [Coord] -> [Order] -> Maybe Order -> IO ()
+gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> Set.Set Coord -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
   let input = words input_line
@@ -325,10 +325,14 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   startTime <- getCurrentTime
   let curCoord = (x, y)
   debug ("third line " ++ opponentOrders)
-  let myCoordHistory = oldMyCoordHistory ++ [curCoord]
+  let myCoordHistory = Set.insert curCoord oldMyCoordHistory
   let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
+
+  debug ("history " ++ show (length myCoordHistory) ++ " " ++ show (length opponentHistory))
+
   let !opponentCandidates = findPositionFromHistory precomputed waterCoords opponentHistory landMap
   let !myCandidates = findPositionFromHistory precomputed waterCoords oldMyHistory landMap
+
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
@@ -338,7 +342,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let closestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  let move = findMove waterCoords landMap curCoord myCoordHistory closestWaterTarget
+  let !move = findMove waterCoords landMap curCoord myCoordHistory closestWaterTarget
   debug ("Closest waters is " ++ show closestWaterTarget ++ " and I can get closer with move " ++ show move)
   let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let after = maybe curCoord snd move
@@ -381,4 +385,4 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  gameLoop precomputed waterCoords landMap [] [] [] Nothing
+  gameLoop precomputed waterCoords landMap [] Set.empty [] Nothing
