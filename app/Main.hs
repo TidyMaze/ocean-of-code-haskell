@@ -159,13 +159,13 @@ execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
 execOrderBulk !precomputed !landMap !candidates !action = nub (concatMap (execOrder precomputed landMap action) candidates)
 
 execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
-execOrder _ landMap (Move direction _) c = [newC | isWaterCoord landMap newC]
+execOrder _ landMap (Move direction _) c = if isWaterCoord landMap newC then [newC] else []
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c = [c | inTorpedoRange precomputed c t]
-execOrder _ _ (Surface (Just sector)) c = [c | sector == sectorFromCoord c]
-execOrder _ _ (SonarResult sector True) c = [c | sector == sectorFromCoord c]
-execOrder _ _ (SonarResult sector False) c = [c | sector /= sectorFromCoord c]
+execOrder precomputed _ (Torpedo t) c = if inTorpedoRange precomputed c t then [c] else []
+execOrder _ _ (Surface (Just sector)) c = if sector == sectorFromCoord c then [c] else []
+execOrder _ _ (SonarResult sector True) c = if sector == sectorFromCoord c then [c] else []
+execOrder _ _ (SonarResult sector False) c = if sector /= sectorFromCoord c then [c] else []
 execOrder precomputed _ (Silence _) c@(cX, cY) = filter (\(tx, ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ _ otherOrder state = [state]
 
