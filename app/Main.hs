@@ -345,7 +345,7 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let myCoordHistory = Set.insert curCoord oldMyCoordHistory
   let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
 
-  debug ("history " ++ show (length myCoordHistory) ++ " " ++ show (length opponentHistory))
+  debug ("history " ++ show (length oldMyHistory) ++ " " ++ show (length opponentHistory))
 
   let !opponentCandidates = findPositionFromHistory precomputed waterCoords opponentHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
@@ -376,9 +376,9 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
-  let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction ++ [message]
+  let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction
   let !myHistory = oldMyHistory ++ actions
-  let !out = intercalate "|" (map showOrder actions)
+  let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
   gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory sonarAction
 
