@@ -11,6 +11,7 @@ import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
 import           System.IO
+import qualified Data.Vector as V
 
 data Direction
   = N
@@ -144,7 +145,8 @@ bary coords = Just (avgX, avgY)
     avgX = fromIntegral (sum (map x coords)) / fromIntegral size
     avgY = fromIntegral (sum (map y coords)) / fromIntegral size
 
-isWaterCoord landMap c = isInBoard c && not (landMap !! y c !! x c)
+isWaterCoord :: V.Vector (V.Vector Bool) -> Coord -> Bool
+isWaterCoord landMap c = isInBoard c && not (landMap V.! y c V.! x c)
 
 getPowerToBuy torpedoCooldown sonarCooldown silenceCooldown mineCooldown = maybe PTorpedo fst3 found
   where
@@ -159,13 +161,13 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
-findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> [[Bool]] -> [Coord]
+findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> V.Vector (V.Vector Bool) -> [Coord]
 findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) waterCoords history
 
-execOrderBulk :: Precomputed -> [[Bool]] -> [Coord] -> Order -> [Coord]
+execOrderBulk :: Precomputed -> V.Vector (V.Vector Bool) -> [Coord] -> Order -> [Coord]
 execOrderBulk !precomputed !landMap !candidates !action = nub (concatMap (execOrder precomputed landMap action) candidates)
 
-execOrder :: Precomputed -> [[Bool]] -> Order -> Coord -> [Coord]
+execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> [Coord]
 execOrder _ landMap (Move direction _) c = if isWaterCoord landMap newC then [newC] else []
   where
     newC = addDirToCoord c direction
@@ -183,7 +185,7 @@ toOpponentInput _ (Silence _)     = Silence Nothing
 toOpponentInput _ (Mine _)        = Mine Nothing
 toOpponentInput _ other           = other
 
-getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
+getWaterNeighbors :: V.Vector (V.Vector Bool) -> Coord -> [(Direction, Coord)]
 getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
   where
     computeNeighbor d = (d, addDirToCoord c d)
@@ -319,7 +321,7 @@ getElapsedTime startTime = do
   let elapsed = diffUTCTime endTime startTime
   return (show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms")
 
-gameLoop :: Precomputed -> [Coord] -> [[Bool]] -> [Order] -> Set.Set Coord -> [Order] -> Maybe Order -> IO ()
+gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> [Order] -> Set.Set Coord -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
   let input = words input_line
@@ -385,7 +387,7 @@ main = do
   let width = read (input !! 0) :: Int
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
-  !landMap <- replicateM height $ map (== 'x') <$> getLine
+  !landMap <- fmap V.fromList (replicateM height $ V.fromList . map (== 'x') <$> getLine)
   startTime <- getCurrentTime
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
   let !precomputed = Precomputed (Map.fromList mapping)
