@@ -1,12 +1,13 @@
 {-# LANGUAGE BangPatterns  #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -XStrict #-}
 
 module Main where
 
 import           Control.Monad
 import           Data.List
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+import qualified Data.Set as S
 import           Data.Maybe
 import           Data.Ord
 import           Data.Time.Clock
@@ -164,22 +165,24 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
-findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> V.Vector (V.Vector Bool) -> [Coord]
-findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) waterCoords history
+findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> V.Vector (V.Vector Bool) -> S.Set Coord
+findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) (S.fromList waterCoords) history
 
-execOrderBulk :: Precomputed -> V.Vector (V.Vector Bool) -> [Coord] -> Order -> [Coord]
-execOrderBulk !precomputed !landMap !candidates !action = nub (concatMap (execOrder precomputed landMap action) candidates)
+execOrderBulk :: Precomputed -> V.Vector (V.Vector Bool) -> S.Set Coord -> Order -> S.Set Coord
+execOrderBulk !precomputed !landMap !candidates !action = S.foldl' mergeCoordinates S.empty candidates
+  where
+    mergeCoordinates acc candidate = S.union acc (execOrder precomputed landMap action candidate)
 
-execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> [Coord]
-execOrder _ landMap (Move direction _) c = if isWaterCoord landMap newC then [newC] else []
+execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> S.Set Coord
+execOrder _ landMap (Move direction _) c = S.fromList $! if isWaterCoord landMap newC then [newC] else []
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c = if inTorpedoRange precomputed c t then [c] else []
-execOrder _ _ (Surface (Just sector)) c = if sector == sectorFromCoord c then [c] else []
-execOrder _ _ (SonarResult sector True) c = if sector == sectorFromCoord c then [c] else []
-execOrder _ _ (SonarResult sector False) c = if sector /= sectorFromCoord c then [c] else []
-execOrder precomputed _ (Silence _) c@(Coord cX cY) = filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
-execOrder _ _ otherOrder state = [state]
+execOrder precomputed _ (Torpedo t) c = S.fromList $! if inTorpedoRange precomputed c t then [c] else []
+execOrder _ _ (Surface (Just sector)) c = S.fromList $! if sector == sectorFromCoord c then [c] else []
+execOrder _ _ (SonarResult sector True) c = S.fromList $! if sector == sectorFromCoord c then [c] else []
+execOrder _ _ (SonarResult sector False) c = S.fromList $! if sector /= sectorFromCoord c then [c] else []
+execOrder precomputed _ (Silence _) c@(Coord cX cY) = S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
+execOrder _ _ otherOrder state = S.fromList [state]
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -282,7 +285,7 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
     (Just (d, to), 0, Just (b, dev)) | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
     (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
-    (Nothing, _, _) -> (Surface Nothing, Set.empty, Nothing)
+    (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
 
 getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
   case (updatedTorpedoCooldown, target) of
@@ -324,7 +327,7 @@ getElapsedTime startTime = do
   let elapsed = diffUTCTime endTime startTime
   return (show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms")
 
-gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> [Order] -> Set.Set Coord -> [Order] -> Maybe Order -> IO ()
+gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> [Order] -> S.Set Coord -> [Order] -> Maybe Order -> IO ()
 gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
   input_line <- getLine
   let input = words input_line
@@ -342,17 +345,17 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   startTime <- getCurrentTime
   let curCoord = Coord x y
   debug ("third line " ++ opponentOrders)
-  let myCoordHistory = Set.insert curCoord oldMyCoordHistory
+  let myCoordHistory = S.insert curCoord oldMyCoordHistory
   let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
 
   debug ("history " ++ show (length oldMyHistory) ++ " " ++ show (length opponentHistory))
 
-  let !opponentCandidates = findPositionFromHistory precomputed waterCoords opponentHistory landMap
+  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed waterCoords opponentHistory landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   spentTime1 <- getElapsedTime startTime
   debug ("opp: " ++ spentTime1)
 
-  let !myCandidates = findPositionFromHistory precomputed waterCoords oldMyHistory landMap
+  let !myCandidates = S.toList $! findPositionFromHistory precomputed waterCoords oldMyHistory landMap
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
@@ -405,4 +408,4 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  gameLoop precomputed waterCoords landMap [] Set.empty [] Nothing
+  gameLoop precomputed waterCoords landMap [] S.empty [] Nothing
