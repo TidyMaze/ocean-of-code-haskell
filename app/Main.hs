@@ -74,6 +74,7 @@ debug = hPutStrLn stderr
 send :: String -> IO ()
 send = putStrLn
 
+parsePower :: String -> Power
 parsePower "TORPEDO" = PTorpedo
 parsePower "SONAR"   = PSonar
 parsePower "SILENCE" = PSilence
@@ -93,6 +94,7 @@ parseSurface rawSector = Surface (Just (read rawSector :: Int))
 
 parseSonar rawSector = Sonar (Just (read rawSector :: Int))
 
+parseOrder :: String -> Order
 parseOrder o = process (preprocess o)
   where
     preprocess raw = splitEq ' ' $ trim raw
@@ -113,6 +115,7 @@ sectorFromCoord (Coord x y) = y `div` 5 * 3 + x `div` 5 + 1
 addDirToCoord (Coord x y) dir = Coord (x + oX) (y + oY) where (oX, oY) = getOffset dir
 {-# INLINE addDirToCoord #-}
 
+getOffset :: Direction -> (Int, Int)
 getOffset N = (0, -1)
 getOffset S = (0, 1)
 getOffset W = (-1, 0)
