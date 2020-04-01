@@ -261,9 +261,9 @@ isSilence _           = False
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.5
+maxDev = 0.5
 
-maxDevDef = 4.5
+maxDevDef = 4
 
 torpedoRange = 4
 
@@ -308,7 +308,7 @@ getSonarAction cooldown _ _
 getSonarAction _ [] _ = Nothing
 getSonarAction _ _ Nothing = Nothing
 getSonarAction _ _ (Just (_, dev))
-  | dev <= 1.5 = Nothing
+  | dev <= 0.5 = Nothing
 getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
@@ -371,12 +371,13 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   debug ("Closest waters is " ++ show closestWaterTarget ++ " and I can get closer with move " ++ show move)
   let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let after = maybe curCoord snd move
-  let updatedTorpedoCooldown =
+  let (updatedTorpedoCooldown, updatedSonarCooldown) =
         case powerBought of
-          Just PTorpedo -> max (torpedocooldown - 1) 0
-          _             -> torpedocooldown
+          Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
+          Just PSonar -> (torpedocooldown, max (sonarcooldown - 1) 0)
+          _             -> (torpedocooldown, sonarcooldown)
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
-  let !sonarAction = getSonarAction sonarcooldown opponentCandidates maybeOppBaryWithMeanDev
+  let !sonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction
