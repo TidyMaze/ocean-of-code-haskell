@@ -261,7 +261,7 @@ isSilence _           = False
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 0.5
+maxDev = 1.5
 
 maxDevDef = 4
 
@@ -308,7 +308,7 @@ getSonarAction cooldown _ _
 getSonarAction _ [] _ = Nothing
 getSonarAction _ _ Nothing = Nothing
 getSonarAction _ _ (Just (_, dev))
-  | dev <= 0.5 = Nothing
+  | dev <= 2 = Nothing
 getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
