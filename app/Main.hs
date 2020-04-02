@@ -261,7 +261,7 @@ isSilence _           = False
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
-maxDev = 1.5
+maxDev = 1.4
 
 maxDevDef = 4
 
