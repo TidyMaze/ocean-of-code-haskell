@@ -316,6 +316,7 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
 
+getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Maybe Order
 getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
   case (updatedTorpedoCooldown, target) of
     (0, Just realTarget) -> fmap Torpedo closestToTarget
@@ -414,12 +415,12 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
           Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
           _             -> (torpedocooldown, sonarcooldown)
-  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord
-  let !sonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
+  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord
+  let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
-  let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction
-  let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = sonarAction}
+  let !actions = moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction
+  let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
   gameLoop precomputed waterCoords landMap resState
