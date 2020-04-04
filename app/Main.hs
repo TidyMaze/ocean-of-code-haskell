@@ -401,19 +401,20 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  let closestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
+  let maybeClosestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  let !move = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) closestWaterTarget
-  debug ("Closest waters is " ++ show closestWaterTarget ++ " and I can get closer with move " ++ show move)
-  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction (myCoordHistory afterParsingInputsState) move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
-  let after = maybe curCoord snd move
+  let !maybeMoveWithDest = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
+  debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
+  let (!moveAction, endMyCoordHistory, powerBought) =
+        getMoveAction (myCoordHistory afterParsingInputsState) maybeMoveWithDest torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
+  let afterCoord = maybe curCoord snd maybeMoveWithDest
   let (updatedTorpedoCooldown, updatedSonarCooldown) =
         case powerBought of
           Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
           Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
           _             -> (torpedocooldown, sonarcooldown)
-  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
+  let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord
   let !sonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
