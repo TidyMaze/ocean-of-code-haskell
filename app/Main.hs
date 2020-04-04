@@ -300,35 +300,35 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
 
+explosionDamages :: Coord -> Coord -> Int
+explosionDamages landing dest =
+  case diagDst dest landing of
+    0 -> 2
+    1 -> 1
+    _ -> 0
+
 getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Bool -> Int -> Int -> Maybe Order
 getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after oppFound myLife oppLife =
   case (updatedTorpedoCooldown, target, oppFound) of
     (0, Just realTarget, False) -> fmap Torpedo closestToTarget
       where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
-            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
+            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt
               where
                 iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
       where closestToTarget = fmap (\(a, b, c, d) -> a) (maxByOption (\(a, b, c, d) -> d) (filter dontDoAnythingStupid (map getShootData waterCoords)))
-            dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) =
-              inTorpedoRange precomputed after c && -- I can shoot this coord
-              (dmgReceived < myLife) && -- do not suicide
-              dmgGiven > 0 && -- do not shoot for nothing
-              (diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)) -- I must deal more excepted if I kill and not die
+            dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) = iCanShootIt && doNotSuicide && iDealDamages && canTakeALotIfIKill
+              where
+                iCanShootIt = inTorpedoRange precomputed after c
+                doNotSuicide = dmgReceived < myLife
+                iDealDamages = dmgGiven > 0
+                canTakeALotIfIKill = diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)
             getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
               where
-                dmgReceived =
-                  case diagDst c after of
-                    0 -> 2
-                    1 -> 1
-                    _ -> 0
-                dmgGiven =
-                  case diagDst c realTarget of
-                    0 -> 2
-                    1 -> 1
-                    _ -> 0
+                dmgReceived = explosionDamages c after
+                dmgGiven = explosionDamages c realTarget
     (0, Nothing, _) -> Nothing
     (_, _, _) -> Nothing
 
