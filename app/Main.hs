@@ -313,8 +313,8 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
 
-getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Bool -> Maybe Order
-getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after oppFound =
+getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Bool -> Int -> Int -> Maybe Order
+getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after oppFound myLife oppLife =
   case (updatedTorpedoCooldown, target, oppFound) of
     (0, Just realTarget, False) -> fmap Torpedo closestToTarget
       where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
@@ -324,12 +324,23 @@ getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after opp
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
-      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
-            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
-              where
-                iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
-                notGettingHurt = not (inExplosionRange closeTarget after)
-                hurtingEnemy = inExplosionRange closeTarget realTarget
+      where
+        closestToTarget = fmap (\(a,b,c,d) -> a) (maxByOption (\(a,b,c,d) -> d) (filter dontDoAnythingStupid (map getShootData waterCoords)))
+        dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) =
+          inTorpedoRange precomputed after c && -- I can shoot this coord
+          (dmgReceived < myLife) && -- do not suicide
+          dmgGiven > 0 && -- do not shoot for nothing
+          (diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)) -- I must deal more excepted if I kill and not die
+        getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
+          where
+            dmgReceived = case diagDst c after of
+              0 -> 2
+              1 -> 1
+              _ -> 0
+            dmgGiven = case diagDst c realTarget of
+              0 -> 2
+              1 -> 1
+              _ -> 0
     (0, Nothing, _) -> Nothing
     (_, _, _) -> Nothing
 
@@ -376,8 +387,8 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   let input = words input_line
   let x = read (input !! 0) :: Int
   let y = read (input !! 1) :: Int
-  let mylife = read (input !! 2) :: Int
-  let opplife = read (input !! 3) :: Int
+  let myLife = read (input !! 2) :: Int
+  let oppLife = read (input !! 3) :: Int
   let torpedocooldown = read (input !! 4) :: Int
   let sonarcooldown = read (input !! 5) :: Int
   let silencecooldown = read (input !! 6) :: Int
@@ -403,7 +414,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
-  let oppFound = length opponentCandidates == 0
+  let oppFound = length opponentCandidates == 1
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
@@ -420,7 +431,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
           Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
           _             -> (torpedocooldown, sonarcooldown)
-  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound
+  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
