@@ -324,23 +324,24 @@ getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after opp
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
-      where
-        closestToTarget = fmap (\(a,b,c,d) -> a) (maxByOption (\(a,b,c,d) -> d) (filter dontDoAnythingStupid (map getShootData waterCoords)))
-        dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) =
-          inTorpedoRange precomputed after c && -- I can shoot this coord
-          (dmgReceived < myLife) && -- do not suicide
-          dmgGiven > 0 && -- do not shoot for nothing
-          (diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)) -- I must deal more excepted if I kill and not die
-        getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
-          where
-            dmgReceived = case diagDst c after of
-              0 -> 2
-              1 -> 1
-              _ -> 0
-            dmgGiven = case diagDst c realTarget of
-              0 -> 2
-              1 -> 1
-              _ -> 0
+      where closestToTarget = fmap (\(a, b, c, d) -> a) (maxByOption (\(a, b, c, d) -> d) (filter dontDoAnythingStupid (map getShootData waterCoords)))
+            dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) =
+              inTorpedoRange precomputed after c && -- I can shoot this coord
+              (dmgReceived < myLife) && -- do not suicide
+              dmgGiven > 0 && -- do not shoot for nothing
+              (diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)) -- I must deal more excepted if I kill and not die
+            getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
+              where
+                dmgReceived =
+                  case diagDst c after of
+                    0 -> 2
+                    1 -> 1
+                    _ -> 0
+                dmgGiven =
+                  case diagDst c realTarget of
+                    0 -> 2
+                    1 -> 1
+                    _ -> 0
     (0, Nothing, _) -> Nothing
     (_, _, _) -> Nothing
 
