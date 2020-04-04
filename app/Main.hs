@@ -280,14 +280,11 @@ findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> c
 isSilence (Silence _) = True
 isSilence _           = False
 
---cleanHistory h =
---  case splitted of
---    [] -> []
---    xs -> last xs
---  where
---    splitted = splitOn isSilence h
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
+
+maxByOption _ [] = Nothing
+maxByOption f xs = Just (maximumBy (comparing f) xs)
 
 maxDev = 1.4
 
@@ -316,18 +313,25 @@ getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown 
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
 
-getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Maybe Order
-getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after =
-  case (updatedTorpedoCooldown, target) of
-    (0, Just realTarget) -> fmap Torpedo closestToTarget
+getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Bool -> Maybe Order
+getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after oppFound =
+  case (updatedTorpedoCooldown, target, oppFound) of
+    (0, Just realTarget, False) -> fmap Torpedo closestToTarget
       where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
             iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
               where
                 iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
-    (0, Nothing) -> Nothing
-    (_, _) -> Nothing
+    (0, Just realTarget, True) -> fmap Torpedo closestToTarget
+      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
+            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt -- use BFS
+              where
+                iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
+                notGettingHurt = not (inExplosionRange closeTarget after)
+                hurtingEnemy = inExplosionRange closeTarget realTarget
+    (0, Nothing, _) -> Nothing
+    (_, _, _) -> Nothing
 
 groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
 groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
@@ -399,6 +403,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
+  let oppFound = length opponentCandidates == 0
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
@@ -415,7 +420,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
           Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
           _             -> (torpedocooldown, sonarcooldown)
-  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord
+  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
