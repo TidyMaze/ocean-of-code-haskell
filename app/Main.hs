@@ -7,36 +7,38 @@ module Main where
 import           Control.Monad
 import           Data.List
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as S
 import           Data.Maybe
 import           Data.Ord
+import qualified Data.Set        as S
 import           Data.Time.Clock
+import qualified Data.Vector     as V
 import           System.IO
-import qualified Data.Vector as V
 
 data Direction
   = N
   | S
   | W
   | E
-  deriving (Read, Enum, Show)
+  deriving (Read, Enum, Show, Eq)
 
 data Power
   = PTorpedo
   | PSonar
   | PSilence
   | PMine
-  deriving (Show)
+  deriving (Show, Eq)
 
 showPower PTorpedo = "TORPEDO"
 showPower PSonar   = "SONAR"
 showPower PSilence = "SILENCE"
 showPower PMine    = "MINE"
 
-data Coord = Coord {
-     x :: {-# UNPACK #-} !Int,
-     y :: {-# UNPACK #-} !Int
-  } deriving (Show, Eq, Ord)
+data Coord =
+  Coord
+    { x :: {-# UNPACK #-}!Int
+    , y :: {-# UNPACK #-}!Int
+    }
+  deriving (Show, Eq, Ord)
 
 data Order
   = Move Direction (Maybe Power)
@@ -48,6 +50,10 @@ data Order
   | SonarResult Int Bool
   | Mine (Maybe Direction)
   | Trigger Coord
+  deriving (Eq)
+
+instance Show Order where
+  show = showOrder
 
 showOrder (Move dir power) = "MOVE " ++ show dir ++ " " ++ maybe "" showPower power
 showOrder (Torpedo (Coord x y)) = "TORPEDO " ++ show x ++ " " ++ show y
@@ -111,30 +117,32 @@ parseOrder o = process (preprocess o)
 parseOrders orderRaw = map parseOrder (splitEq '|' orderRaw)
 
 sectorFromCoord (Coord x y) = y `div` 5 * 3 + x `div` 5 + 1
+
 {-# INLINE sectorFromCoord #-}
+addDirToCoord (Coord x y) dir = Coord (x + oX) (y + oY)
+  where
+    (oX, oY) = getOffset dir
 
-addDirToCoord (Coord x y) dir = Coord (x + oX) (y + oY) where (oX, oY) = getOffset dir
 {-# INLINE addDirToCoord #-}
-
 getOffset :: Direction -> (Int, Int)
 getOffset N = (0, -1)
 getOffset S = (0, 1)
 getOffset W = (-1, 0)
 getOffset E = (1, 0)
+
 {-# INLINE getOffset #-}
-
 isInBoard (Coord x y) = y >= 0 && y < 15 && x >= 0 && x < 15
+
 {-# INLINE isInBoard #-}
-
 manhattan to from = abs (x to - x from) + abs (y to - y from)
-{-# INLINE manhattan #-}
 
+{-# INLINE manhattan #-}
 diagDst to from = (dx + dy) - min dx dy
   where
     dx = abs (x from - x to)
     dy = abs (y from - y to)
-{-# INLINE diagDst #-}
 
+{-# INLINE diagDst #-}
 baryMeanDev :: Fractional a => [Coord] -> Maybe (Coord, a)
 baryMeanDev [] = Nothing
 baryMeanDev coords = fmap (\b -> (b, fromIntegral (foldl' (distToB b) 0 coords) / fromIntegral (length coords))) maybeB
@@ -174,14 +182,35 @@ execOrderBulk !precomputed !landMap !candidates !action = S.foldl' mergeCoordina
     mergeCoordinates acc candidate = S.union acc (execOrder precomputed landMap action candidate)
 
 execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> S.Set Coord
-execOrder _ landMap (Move direction _) c = S.fromList $! if isWaterCoord landMap newC then [newC] else []
+execOrder _ landMap (Move direction _) c =
+  S.fromList $!
+  if isWaterCoord landMap newC
+    then [newC]
+    else []
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c = S.fromList $! if inTorpedoRange precomputed c t then [c] else []
-execOrder _ _ (Surface (Just sector)) c = S.fromList $! if sector == sectorFromCoord c then [c] else []
-execOrder _ _ (SonarResult sector True) c = S.fromList $! if sector == sectorFromCoord c then [c] else []
-execOrder _ _ (SonarResult sector False) c = S.fromList $! if sector /= sectorFromCoord c then [c] else []
-execOrder precomputed _ (Silence _) c@(Coord cX cY) = S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
+execOrder precomputed _ (Torpedo t) c =
+  S.fromList $!
+  if inTorpedoRange precomputed c t
+    then [c]
+    else []
+execOrder _ _ (Surface (Just sector)) c =
+  S.fromList $!
+  if sector == sectorFromCoord c
+    then [c]
+    else []
+execOrder _ _ (SonarResult sector True) c =
+  S.fromList $!
+  if sector == sectorFromCoord c
+    then [c]
+    else []
+execOrder _ _ (SonarResult sector False) c =
+  S.fromList $!
+  if sector /= sectorFromCoord c
+    then [c]
+    else []
+execOrder precomputed _ (Silence _) c@(Coord cX cY) =
+  S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ _ otherOrder state = S.fromList [state]
 
 toOpponentInput :: Coord -> Order -> Order
@@ -257,7 +286,6 @@ isSilence _           = False
 --    xs -> last xs
 --  where
 --    splitted = splitOn isSilence h
-
 minByOption _ [] = Nothing
 minByOption f xs = Just (minimumBy (comparing f) xs)
 
@@ -282,7 +310,8 @@ newtype Precomputed =
 
 getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev =
   case (move, silencecooldown, maybeMyBaryWithMeanDev) of
-    (Just (d, to), 0, Just (b, dev)) | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+    (Just (d, to), 0, Just (b, dev))
+      | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
     (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
       where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
     (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
@@ -327,8 +356,17 @@ getElapsedTime startTime = do
   let elapsed = diffUTCTime endTime startTime
   return (show (ceiling (realToFrac (toRational elapsed * 1000))) ++ "ms")
 
-gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> [Order] -> S.Set Coord -> [Order] -> Maybe Order -> IO ()
-gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHistory !oldMyHistory lastSonarAction = do
+data State =
+  State
+    { opponentHistory :: {-# UNPACK #-}![Order]
+    , myCoordHistory  :: {-# UNPACK #-}!(S.Set Coord)
+    , myHistory       :: {-# UNPACK #-}![Order]
+    , lastSonarAction :: {-# UNPACK #-}!(Maybe Order)
+    }
+  deriving (Show, Eq)
+
+gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> State -> IO ()
+gameLoop !precomputed !waterCoords !landMap !oldState = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -345,21 +383,20 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   startTime <- getCurrentTime
   let curCoord = Coord x y
   debug ("third line " ++ opponentOrders)
-  let myCoordHistory = S.insert curCoord oldMyCoordHistory
-  let opponentHistory = buildNewOpponentHistory oldOpponentHistory (parseSonarResult lastSonarAction sonarresult) opponentOrders
-
-  debug ("history " ++ show (length oldMyHistory) ++ " " ++ show (length opponentHistory))
-
-  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed waterCoords opponentHistory landMap
+  let afterParsingInputsState =
+        oldState
+          { myCoordHistory = S.insert curCoord (myCoordHistory oldState)
+          , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
+          }
+  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
+  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed waterCoords (opponentHistory afterParsingInputsState) landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   spentTime1 <- getElapsedTime startTime
   debug ("opp: " ++ spentTime1)
-
-  let !myCandidates = S.toList $! findPositionFromHistory precomputed waterCoords oldMyHistory landMap
+  let !myCandidates = S.toList $! findPositionFromHistory precomputed waterCoords (myHistory afterParsingInputsState) landMap
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
-
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
@@ -367,24 +404,24 @@ gameLoop !precomputed !waterCoords !landMap !oldOpponentHistory !oldMyCoordHisto
   let closestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  let !move = findMove waterCoords landMap curCoord myCoordHistory closestWaterTarget
+  let !move = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) closestWaterTarget
   debug ("Closest waters is " ++ show closestWaterTarget ++ " and I can get closer with move " ++ show move)
-  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
+  let (!moveAction, endMyCoordHistory, powerBought) = getMoveAction (myCoordHistory afterParsingInputsState) move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let after = maybe curCoord snd move
   let (updatedTorpedoCooldown, updatedSonarCooldown) =
         case powerBought of
           Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
-          Just PSonar -> (torpedocooldown, max (sonarcooldown - 1) 0)
+          Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
           _             -> (torpedocooldown, sonarcooldown)
   let !torpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown closestWaterTarget after
   let !sonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let !actions = moveAction : maybeToList torpedoAction ++ maybeToList sonarAction
-  let !myHistory = oldMyHistory ++ actions
+  let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = sonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
-  gameLoop precomputed waterCoords landMap opponentHistory endMyCoordHistory myHistory sonarAction
+  gameLoop precomputed waterCoords landMap resState
 
 main :: IO ()
 main = do
@@ -409,4 +446,5 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  gameLoop precomputed waterCoords landMap [] S.empty [] Nothing
+  let state = State {myHistory = [], opponentHistory = [], myCoordHistory = S.empty, lastSonarAction = Nothing}
+  gameLoop precomputed waterCoords landMap state
