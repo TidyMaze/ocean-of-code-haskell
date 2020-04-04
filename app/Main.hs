@@ -181,34 +181,21 @@ execOrderBulk !precomputed !landMap !candidates !action = S.foldl' mergeCoordina
   where
     mergeCoordinates acc candidate = S.union acc (execOrder precomputed landMap action candidate)
 
-execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> S.Set Coord
-execOrder _ landMap (Move direction _) c =
+singleInSetIf :: Bool -> Coord -> S.Set Coord
+singleInSetIf !cond coord =
   S.fromList $!
-  if isWaterCoord landMap newC
-    then [newC]
+  if cond
+    then [coord]
     else []
+
+execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> S.Set Coord
+execOrder _ landMap (Move direction _) c = singleInSetIf (isWaterCoord landMap newC) newC
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c =
-  S.fromList $!
-  if inTorpedoRange precomputed c t
-    then [c]
-    else []
-execOrder _ _ (Surface (Just sector)) c =
-  S.fromList $!
-  if sector == sectorFromCoord c
-    then [c]
-    else []
-execOrder _ _ (SonarResult sector True) c =
-  S.fromList $!
-  if sector == sectorFromCoord c
-    then [c]
-    else []
-execOrder _ _ (SonarResult sector False) c =
-  S.fromList $!
-  if sector /= sectorFromCoord c
-    then [c]
-    else []
+execOrder precomputed _ (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
+execOrder _ _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
 execOrder precomputed _ (Silence _) c@(Coord cX cY) =
   S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
 execOrder _ _ otherOrder state = S.fromList [state]
