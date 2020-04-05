@@ -12,6 +12,7 @@ import           Data.Ord
 import qualified Data.Set        as S
 import           Data.Time.Clock
 import qualified Data.Vector     as V
+import           Debug.Trace     as T
 import           System.IO
 
 data Direction
@@ -150,6 +151,7 @@ baryMeanDev coords = fmap (\b -> (b, fromIntegral (foldl' (distToB b) 0 coords) 
     distToB b a x = diagDst b x + a
     maybeB = fmap (\(bx, by) -> Coord (round bx) (round by)) (bary coords)
 
+bary :: Fractional a => [Coord] -> Maybe (a, a)
 bary [] = Nothing
 bary coords = Just (avgX, avgY)
   where
@@ -160,6 +162,7 @@ bary coords = Just (avgX, avgY)
 isWaterCoord :: V.Vector (V.Vector Bool) -> Coord -> Bool
 isWaterCoord landMap c = isInBoard c && not (landMap V.! y c V.! x c)
 
+getPowerToBuy :: State -> Power
 getPowerToBuy state = maybe PTorpedo fst3 found
   where
     fst3 (a, b, c) = a
@@ -248,6 +251,7 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
     neighborsWithDist coord (Just dist)
       | dist < 4 = getNeighbors coord
 
+findMove :: [Coord] -> V.Vector (V.Vector Bool) -> Coord -> S.Set Coord -> Maybe Coord -> Maybe (Direction, Coord)
 findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir landMap c visited
