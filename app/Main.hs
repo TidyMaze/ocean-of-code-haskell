@@ -273,7 +273,7 @@ minByOption f xs = Just (minimumBy (comparing f) xs)
 maxByOption _ [] = Nothing
 maxByOption f xs = Just (maximumBy (comparing f) xs)
 
-maxDev = 1.4
+maxDev = 1.3
 
 maxDevDef = 4
 
@@ -293,12 +293,20 @@ newtype Precomputed =
   deriving (Show)
 
 getMoveAction myCoordHistory move torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev =
-  case (move, silencecooldown, maybeMyBaryWithMeanDev) of
-    (Just (d, to), 0, Just (b, dev))
-      | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
-    (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
-      where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
-    (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
+  (action, newMyCoordHistory, powerBought, updatedTorpedoCooldown, updatedSonarCooldown)
+  where
+    (action, newMyCoordHistory, powerBought) =
+      case (move, silencecooldown, maybeMyBaryWithMeanDev) of
+        (Just (d, to), 0, Just (b, dev))
+          | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
+        (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
+          where powerToBuy = getPowerToBuy torpedocooldown sonarcooldown silencecooldown minecooldown
+        (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
+    (updatedTorpedoCooldown, updatedSonarCooldown) =
+      case powerBought of
+        Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
+        Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
+        _             -> (torpedocooldown, sonarcooldown)
 
 explosionDamages :: Coord -> Coord -> Int
 explosionDamages landing dest =
@@ -411,14 +419,9 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   let !maybeMoveWithDest = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
   debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
-  let (!moveAction, endMyCoordHistory, powerBought) =
+  let (!moveAction, endMyCoordHistory, powerBought, updatedTorpedoCooldown, updatedSonarCooldown) =
         getMoveAction (myCoordHistory afterParsingInputsState) maybeMoveWithDest torpedocooldown sonarcooldown silencecooldown minecooldown maybeMyBaryWithMeanDev
   let afterCoord = maybe curCoord snd maybeMoveWithDest
-  let (updatedTorpedoCooldown, updatedSonarCooldown) =
-        case powerBought of
-          Just PTorpedo -> (max (torpedocooldown - 1) 0, sonarcooldown)
-          Just PSonar   -> (torpedocooldown, max (sonarcooldown - 1) 0)
-          _             -> (torpedocooldown, sonarcooldown)
   let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
