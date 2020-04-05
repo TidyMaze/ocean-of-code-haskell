@@ -176,8 +176,8 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
-findPositionFromHistory :: Precomputed -> [Coord] -> [Order] -> V.Vector (V.Vector Bool) -> S.Set Coord
-findPositionFromHistory !precomputed !waterCoords !history !landMap = foldl' (execOrderBulk precomputed landMap) (S.fromList waterCoords) history
+findPositionFromHistory :: Precomputed -> [Order] -> V.Vector (V.Vector Bool) -> S.Set Coord
+findPositionFromHistory !precomputed !history !landMap = foldl' (execOrderBulk precomputed landMap) (S.fromList (waterCoords precomputed)) history
 
 execOrderBulk :: Precomputed -> V.Vector (V.Vector Bool) -> S.Set Coord -> Order -> S.Set Coord
 execOrderBulk !precomputed !landMap !candidates !action = S.foldl' mergeCoordinates S.empty candidates
@@ -291,9 +291,10 @@ inTorpedoRange precomputed from dest = dest `Map.member` getTorpedoRange precomp
 
 inExplosionRange center dest = diagDst dest center <= 1
 
-newtype Precomputed =
+data Precomputed =
   Precomputed
-    { coordsInRange :: Map.Map Coord (Map.Map Coord Int)
+    { coordsInRange :: !(Map.Map Coord (Map.Map Coord Int))
+    , waterCoords   :: ![Coord]
     }
   deriving (Show)
 
@@ -321,18 +322,18 @@ explosionDamages landing dest =
     1 -> 1
     _ -> 0
 
-getTorpedoAction :: Precomputed -> [Coord] -> Int -> Maybe Coord -> Coord -> Bool -> Int -> Int -> Maybe Order
-getTorpedoAction precomputed waterCoords updatedTorpedoCooldown target after oppFound myLife oppLife =
+getTorpedoAction :: Precomputed -> Int -> Maybe Coord -> Coord -> Bool -> Int -> Int -> Maybe Order
+getTorpedoAction precomputed updatedTorpedoCooldown target after oppFound myLife oppLife =
   case (updatedTorpedoCooldown, target, oppFound) of
     (0, Just realTarget, False) -> fmap Torpedo closestToTarget
-      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely waterCoords)
+      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely (waterCoords precomputed))
             iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt
               where
                 iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
-      where closestToTarget = fmap (\(a, b, c, d) -> a) (maxByOption (\(a, b, c, d) -> d) (filter dontDoAnythingStupid (map getShootData waterCoords)))
+      where closestToTarget = fmap (\(a, b, c, d) -> a) (maxByOption (\(a, b, c, d) -> d) (filter dontDoAnythingStupid (map getShootData (waterCoords precomputed))))
             dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) = iCanShootIt && doNotSuicide && iDealDamages && canTakeALotIfIKill
               where
                 iCanShootIt = inTorpedoRange precomputed after c
@@ -387,8 +388,8 @@ data State =
     }
   deriving (Show, Eq)
 
-gameLoop :: Precomputed -> [Coord] -> V.Vector (V.Vector Bool) -> State -> IO ()
-gameLoop !precomputed !waterCoords !landMap !oldState = do
+gameLoop :: Precomputed -> V.Vector (V.Vector Bool) -> State -> IO ()
+gameLoop !precomputed !landMap !oldState = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -415,11 +416,11 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           , mineCooldown = minecooldown
           }
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
-  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed waterCoords (opponentHistory afterParsingInputsState) landMap
+  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState) landMap
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   spentTime1 <- getElapsedTime startTime
   debug ("opp: " ++ spentTime1)
-  let !myCandidates = S.toList $! findPositionFromHistory precomputed waterCoords (myHistory afterParsingInputsState) landMap
+  let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState) landMap
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
@@ -428,13 +429,13 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  let maybeClosestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) waterCoords)
+  let maybeClosestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed))
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  let !maybeMoveWithDest = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
+  let !maybeMoveWithDest = findMove (waterCoords precomputed) landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
   debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
   let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
-  let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
+  let !maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
@@ -442,7 +443,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
-  gameLoop precomputed waterCoords landMap resState
+  gameLoop precomputed landMap resState
 
 main :: IO ()
 main = do
@@ -455,7 +456,7 @@ main = do
   !landMap <- fmap V.fromList (replicateM height $ V.fromList . map (== 'x') <$> getLine)
   startTime <- getCurrentTime
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
-  let !precomputed = Precomputed (Map.fromList mapping)
+  let !precomputed = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords}
         where
           mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
           getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
@@ -468,4 +469,4 @@ main = do
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
   let state = State {myHistory = [], opponentHistory = [], myCoordHistory = S.empty, lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3}
-  gameLoop precomputed waterCoords landMap state
+  gameLoop precomputed landMap state
