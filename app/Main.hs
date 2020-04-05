@@ -297,14 +297,14 @@ newtype Precomputed =
     }
   deriving (Show)
 
-getMoveAction :: S.Set Coord -> Maybe (Direction, Coord) -> State -> Maybe (Coord, Double) -> Coord -> Maybe (Direction, Coord) -> (Order, S.Set Coord, Int, Int, Coord)
-getMoveAction myCoordHistory move state maybeMyBaryWithMeanDev curCoord maybeMoveWithDest = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
+getMoveAction :: Maybe (Direction, Coord) -> State -> Maybe (Coord, Double) -> Coord -> Maybe (Direction, Coord) -> (Order, S.Set Coord, Int, Int, Coord)
+getMoveAction move state maybeMyBaryWithMeanDev curCoord maybeMoveWithDest = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
     (action, newMyCoordHistory, powerBought) =
       case (move, silenceCooldown state, maybeMyBaryWithMeanDev) of
         (Just (d, to), 0, Just (b, dev))
-          | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory, Nothing)
-        (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory, Just powerToBuy)
+          | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+        (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
     (updatedTorpedoCooldown, updatedSonarCooldown) =
@@ -433,8 +433,7 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   let !maybeMoveWithDest = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
   debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
-  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
-        getMoveAction (myCoordHistory afterParsingInputsState) maybeMoveWithDest afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
+  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction maybeMoveWithDest afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
   let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
