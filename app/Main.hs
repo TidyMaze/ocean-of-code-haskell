@@ -252,7 +252,7 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
     neighborsWithDist coord (Just dist)
       | dist < 4 = getNeighbors coord
 
-findMove :: Precomputed -> Coord -> S.Set Coord -> Maybe Coord -> Maybe (Direction, Coord)
+findMove :: Precomputed -> Coord -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
 findMove precomputed curCoord visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited
@@ -300,7 +300,7 @@ data Precomputed =
     }
   deriving (Show)
 
-getMoveAction :: State -> Maybe (Coord, Double) -> Coord -> Maybe (Direction, Coord) -> (Order, S.Set Coord, Int, Int, Coord)
+getMoveAction :: State -> Maybe (Coord, Double) -> Coord -> Maybe (Direction, Coord) -> (Order, [Coord], Int, Int, Coord)
 getMoveAction state maybeMyBaryWithMeanDev curCoord maybeMoveWithDest = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
     (action, newMyCoordHistory, powerBought) =
@@ -309,7 +309,7 @@ getMoveAction state maybeMyBaryWithMeanDev curCoord maybeMoveWithDest = (action,
           | dev <= maxDevDef -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
-        (Nothing, _, _) -> (Surface Nothing, S.empty, Nothing)
+        (Nothing, _, _) -> (Surface Nothing, [], Nothing)
     (updatedTorpedoCooldown, updatedSonarCooldown) =
       case powerBought of
         Just PTorpedo -> (max (torpedoCooldown state - 1) 0, sonarCooldown state)
@@ -380,7 +380,7 @@ getElapsedTime startTime = do
 data State =
   State
     { opponentHistory :: {-# UNPACK #-}![Order]
-    , myCoordHistory  :: {-# UNPACK #-}!(S.Set Coord)
+    , myCoordHistory  :: {-# UNPACK #-}![Coord]
     , myHistory       :: {-# UNPACK #-}![Order]
     , lastSonarAction :: {-# UNPACK #-}!(Maybe Order)
     , torpedoCooldown :: {-# UNPACK #-}!Int
@@ -410,7 +410,7 @@ gameLoop !precomputed !oldState = do
   debug ("third line " ++ opponentOrders)
   let afterParsingInputsState =
         oldState
-          { myCoordHistory = S.insert curCoord (myCoordHistory oldState)
+          { myCoordHistory = curCoord : myCoordHistory oldState
           , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
           , torpedoCooldown = torpedocooldown
           , sonarCooldown = sonarcooldown
@@ -470,5 +470,5 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  let state = State {myHistory = [], opponentHistory = [], myCoordHistory = S.empty, lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3}
+  let state = State {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3}
   gameLoop precomputed state
