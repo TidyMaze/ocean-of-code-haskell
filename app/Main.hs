@@ -1,6 +1,7 @@
-{-# LANGUAGE BangPatterns  #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns   #-}
+{-# LANGUAGE TupleSections  #-}
 {-# OPTIONS_GHC -XStrict #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Main where
 
@@ -176,13 +177,13 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
-findPositionFromHistory :: Precomputed -> [Order] -> V.Vector (V.Vector Bool) -> S.Set Coord
-findPositionFromHistory !precomputed !history !landMap = foldl' (execOrderBulk precomputed landMap) (S.fromList (waterCoords precomputed)) history
+findPositionFromHistory :: Precomputed -> [Order] -> S.Set Coord
+findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed) (S.fromList (waterCoords precomputed)) history
 
-execOrderBulk :: Precomputed -> V.Vector (V.Vector Bool) -> S.Set Coord -> Order -> S.Set Coord
-execOrderBulk !precomputed !landMap !candidates !action = S.foldl' mergeCoordinates S.empty candidates
+execOrderBulk :: Precomputed -> S.Set Coord -> Order -> S.Set Coord
+execOrderBulk !precomputed !candidates !action = S.foldl' mergeCoordinates S.empty candidates
   where
-    mergeCoordinates acc candidate = S.union acc (execOrder precomputed landMap action candidate)
+    mergeCoordinates acc candidate = S.union acc (execOrder precomputed action candidate)
 
 singleInSetIf :: Bool -> Coord -> S.Set Coord
 singleInSetIf !cond coord =
@@ -191,17 +192,17 @@ singleInSetIf !cond coord =
     then [coord]
     else []
 
-execOrder :: Precomputed -> V.Vector (V.Vector Bool) -> Order -> Coord -> S.Set Coord
-execOrder _ landMap (Move direction _) c = singleInSetIf (isWaterCoord landMap newC) newC
+execOrder :: Precomputed -> Order -> Coord -> S.Set Coord
+execOrder precomputed (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
-execOrder _ _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
-execOrder precomputed _ (Silence _) c@(Coord cX cY) =
+execOrder precomputed (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
+execOrder _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
+execOrder precomputed (Silence _) c@(Coord cX cY) =
   S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
-execOrder _ _ otherOrder state = S.fromList [state]
+execOrder _ otherOrder state = S.fromList [state]
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -251,21 +252,21 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
     neighborsWithDist coord (Just dist)
       | dist < 4 = getNeighbors coord
 
-findMove :: [Coord] -> V.Vector (V.Vector Bool) -> Coord -> S.Set Coord -> Maybe Coord -> Maybe (Direction, Coord)
-findMove waterCoords landMap c visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
+findMove :: Precomputed -> Coord -> S.Set Coord -> Maybe Coord -> Maybe (Direction, Coord)
+findMove precomputed curCoord visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
   where
-    neighbors = getUnvisitedWaterNeighborsDir landMap c visited
-    fn x _ = map snd (getUnvisitedWaterNeighborsDir landMap x visited)
+    neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited
+    fn x _ = map snd (getUnvisitedWaterNeighborsDir (landMap precomputed) x visited)
     criteria (Just o) d = (byLonguestPath d, fromMaybe 1000 (distancesToO Map.!? d))
       where
-        distancesToO = bfs waterCoords fn o
+        distancesToO = bfs (waterCoords precomputed) fn o
     criteria Nothing d = (byLonguestPath d, 0)
     byLonguestPath d =
       if null coordDistances
         then 0
         else -distanceToFarestCoord
       where
-        coordDistances = bfs waterCoords fn d
+        coordDistances = bfs (waterCoords precomputed) fn d
         distanceToFarestCoord = snd (maximumBy (comparing snd) (Map.toList coordDistances))
 
 isSilence :: Order -> Bool
@@ -295,6 +296,7 @@ data Precomputed =
   Precomputed
     { coordsInRange :: !(Map.Map Coord (Map.Map Coord Int))
     , waterCoords   :: ![Coord]
+    , landMap       :: !(V.Vector (V.Vector Bool))
     }
   deriving (Show)
 
@@ -388,8 +390,8 @@ data State =
     }
   deriving (Show, Eq)
 
-gameLoop :: Precomputed -> V.Vector (V.Vector Bool) -> State -> IO ()
-gameLoop !precomputed !landMap !oldState = do
+gameLoop :: Precomputed -> State -> IO ()
+gameLoop !precomputed !oldState = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -416,11 +418,11 @@ gameLoop !precomputed !landMap !oldState = do
           , mineCooldown = minecooldown
           }
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
-  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState) landMap
+  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
   spentTime1 <- getElapsedTime startTime
   debug ("opp: " ++ spentTime1)
-  let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState) landMap
+  let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
   debug ("my candidates (" ++ show (length myCandidates) ++ ")")
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
@@ -432,7 +434,7 @@ gameLoop !precomputed !landMap !oldState = do
   let maybeClosestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed))
         where
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  let !maybeMoveWithDest = findMove (waterCoords precomputed) landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
+  let !maybeMoveWithDest = findMove precomputed curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
   debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
   let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
   let !maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
@@ -443,7 +445,7 @@ gameLoop !precomputed !landMap !oldState = do
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
-  gameLoop precomputed landMap resState
+  gameLoop precomputed resState
 
 main :: IO ()
 main = do
@@ -456,7 +458,7 @@ main = do
   !landMap <- fmap V.fromList (replicateM height $ V.fromList . map (== 'x') <$> getLine)
   startTime <- getCurrentTime
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
-  let !precomputed = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords}
+  let !precomputed = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
         where
           mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
           getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
@@ -469,4 +471,4 @@ main = do
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
   let state = State {myHistory = [], opponentHistory = [], myCoordHistory = S.empty, lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3}
-  gameLoop precomputed landMap state
+  gameLoop precomputed state
