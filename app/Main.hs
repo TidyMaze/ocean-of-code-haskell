@@ -433,7 +433,8 @@ gameLoop !precomputed !waterCoords !landMap !oldState = do
           baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   let !maybeMoveWithDest = findMove waterCoords landMap curCoord (myCoordHistory afterParsingInputsState) maybeClosestWaterTarget
   debug ("Closest waters is " ++ show maybeClosestWaterTarget ++ " and I can get closer with move " ++ show maybeMoveWithDest)
-  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction maybeMoveWithDest afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
+  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
+        getMoveAction maybeMoveWithDest afterParsingInputsState maybeMyBaryWithMeanDev curCoord maybeMoveWithDest
   let !maybeTorpedoAction = getTorpedoAction precomputed waterCoords updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
