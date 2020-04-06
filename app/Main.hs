@@ -336,7 +336,10 @@ getTorpedoAction precomputed updatedTorpedoCooldown target after oppFound myLife
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
-      where closestToTarget = fmap (\(a, b, c, d) -> a) (maxByOption (\(a, b, c, d) -> d) (filter dontDoAnythingStupid (map getShootData (waterCoords precomputed))))
+      where closestToTarget =
+              fmap
+                (\(c, dmgGiven, dmgReceived, diffDmg) -> c)
+                (maxByOption (\(c, dmgGiven, dmgReceived, diffDmg) -> (dmgGiven, -dmgReceived)) (filter dontDoAnythingStupid (map getShootData (waterCoords precomputed))))
             dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) = iCanShootIt && doNotSuicide && iDealDamages && canTakeALotIfIKill
               where
                 iCanShootIt = inTorpedoRange precomputed after c
