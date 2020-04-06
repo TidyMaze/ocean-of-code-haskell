@@ -318,6 +318,22 @@ getMoveAction precomputed state maybeMyBaryWithMeanDev maybeClosestWaterTarget =
     afterCoord = maybe (head $ myCoordHistory state) snd maybeMoveWithDest
     maybeMoveWithDest = findMove precomputed (myCoordHistory state) maybeClosestWaterTarget
 
+getMoveActionNoTarget :: Precomputed -> State -> (Order, [Coord], Int, Int, Coord)
+getMoveActionNoTarget precomputed state = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
+  where
+    (action, newMyCoordHistory, powerBought) =
+      case (maybeMoveWithDest, silenceCooldown state) of
+        (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
+          where powerToBuy = getPowerToBuy state
+        (Nothing, _) -> (Surface Nothing, [], Nothing)
+    (updatedTorpedoCooldown, updatedSonarCooldown) =
+      case powerBought of
+        Just PTorpedo -> (max (torpedoCooldown state - 1) 0, sonarCooldown state)
+        Just PSonar -> (torpedoCooldown state, max (sonarCooldown state - 1) 0)
+        _ -> (torpedoCooldown state, sonarCooldown state)
+    afterCoord = maybe (head $ myCoordHistory state) snd maybeMoveWithDest
+    maybeMoveWithDest = findMove precomputed (myCoordHistory state) Nothing
+
 explosionDamages :: Coord -> Coord -> Int
 explosionDamages landing dest =
   case diagDst dest landing of
@@ -394,6 +410,33 @@ data State =
     }
   deriving (Show, Eq)
 
+findAttackSequence :: Precomputed -> State -> Maybe Coord -> [([Order], Int)]
+findAttackSequence _ _ Nothing = []
+findAttackSequence _ state _
+  | torpedoCooldown state > 0 = []
+findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce)
+  where
+    curCoord = head $ myCoordHistory state
+    notMoving = [([], curCoord)]
+    movingOnce = map (\(d, newC) -> ([Move d (Just $ getPowerToBuy state)], newC)) neighbors
+      where
+        neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord (myCoordHistory state)
+
+findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord)] -> [([Order], Int)]
+findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
+  where
+    getDmg (orders, curCoord) = map (\c -> (orders ++ [Torpedo c], explosionDamages c target)) (filter ((<= 1) . diagDst target) whereICanShoot)
+      where
+        whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
+
+findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife =
+  (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
+  where
+    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
+      getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev (maybeClosestWaterTarget >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed)))
+    maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown (fmap fst maybeClosestWaterTarget) afterCoord oppFound myLife oppLife
+    maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
+
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
   input_line <- getLine
@@ -436,13 +479,33 @@ gameLoop !precomputed !oldState = do
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
   let maybeClosestWaterTarget = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   debug ("Closest waters is " ++ show maybeClosestWaterTarget)
-  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
-        getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev (maybeClosestWaterTarget >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed)))
-  let !maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown (fmap fst maybeClosestWaterTarget) afterCoord oppFound myLife oppLife
-  let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
+  let attackSeq =
+        sortOn (negate . snd) $
+        findAttackSequence
+          precomputed
+          afterParsingInputsState
+          (if oppFound
+             then Just (head opponentCandidates)
+             else Nothing)
+  T.traceShowM $ "attackSeq" ++ show attackSeq
+  let (!actions, endMyCoordHistory, maybeSonarAction) =
+        if not (null attackSeq)
+          then (orders, hist, maybeSonarAction)
+          else findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife
+        where
+          bestSeq = fst . head $ attackSeq
+          orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
+          maybeMoveFallback =
+            if any isMoveOrSurface bestSeq
+              then Nothing
+              else Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState})
+          isMoveOrSurface (Move _ _)  = True
+          isMoveOrSurface (Surface _) = True
+          isMoveOrSurface _           = False
+          hist = myCoordHistory afterParsingInputsState
+          maybeSonarAction = Nothing
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
-  let !actions = moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   send out
