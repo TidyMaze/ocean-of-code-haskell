@@ -480,7 +480,7 @@ gameLoop !precomputed !oldState = do
   let maybeClosestWaterTarget = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   debug ("Closest waters is " ++ show maybeClosestWaterTarget)
   let attackSeq =
-        sortOn (negate . snd) $
+        sortOn (\(orders, damages) -> (-damages, length orders)) $
         findAttackSequence
           precomputed
           afterParsingInputsState
@@ -490,15 +490,15 @@ gameLoop !precomputed !oldState = do
   T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         if not (null attackSeq)
-          then (orders, hist, maybeSonarAction)
-          else findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife
+          then trace "rushing" (orders, hist, maybeSonarAction)
+          else trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife
         where
           bestSeq = fst . head $ attackSeq
           orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
           maybeMoveFallback =
             if any isMoveOrSurface bestSeq
               then Nothing
-              else Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState})
+              else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState}))
           isMoveOrSurface (Move _ _)  = True
           isMoveOrSurface (Surface _) = True
           isMoveOrSurface _           = False
