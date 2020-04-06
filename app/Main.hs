@@ -437,7 +437,7 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
 findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord, Int)] -> [([Order], Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
   where
-    getDmg (orders, curCoord, 0) = map (\c -> (orders ++ [Torpedo c], explosionDamages c target {- - explosionDamages c curCoord -})) (filter ((<= 1) . diagDst target) whereICanShoot)
+    getDmg (orders, curCoord, 0) = map (\c -> (orders ++ [Torpedo c], explosionDamages c target)) (filter ((<= 1) . diagDst target) whereICanShoot) {- - explosionDamages c curCoord -}
       where
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
     getDmg _ = []
