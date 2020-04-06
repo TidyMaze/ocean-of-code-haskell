@@ -417,21 +417,27 @@ data State =
 findAttackSequence :: Precomputed -> State -> Maybe Coord -> [([Order], Int)]
 findAttackSequence _ _ Nothing = []
 findAttackSequence _ state _
-  | torpedoCooldown state > 0 = []
+  | torpedoCooldown state > 1 = []
 findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce)
   where
     curCoord = safeHead "curCoord3" $ myCoordHistory state
-    notMoving = [([], curCoord)]
-    movingOnce = map (\(d, newC) -> ([Move d (Just $ getPowerToBuy state)], newC)) neighbors
+    notMoving = [([], curCoord, torpedoCooldown state)]
+    movingOnce = map (\(d, newC) -> ([Move d (Just powerBought)], newC, updatedCD)) neighbors
       where
+        powerBought = getPowerToBuy state
+        updatedCD =
+          case powerBought of
+            PTorpedo -> max (torpedoCooldown state - 1) 0
+            _        -> torpedoCooldown state
         neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord (myCoordHistory state)
 
-findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord)] -> [([Order], Int)]
+findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord, Int)] -> [([Order], Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
   where
-    getDmg (orders, curCoord) = map (\c -> (orders ++ [Torpedo c], explosionDamages c target)) (filter ((<= 1) . diagDst target) whereICanShoot)
+    getDmg (orders, curCoord, 0) = map (\c -> (orders ++ [Torpedo c], explosionDamages c target)) (filter ((<= 1) . diagDst target) whereICanShoot)
       where
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
+    getDmg _ = []
 
 findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife =
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
