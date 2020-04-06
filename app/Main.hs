@@ -501,9 +501,9 @@ gameLoop !precomputed !oldState = do
                     if any isMoveOrSurface bestSeq
                       then Nothing
                       else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState}))
-                  isMoveOrSurface (Move _ _) = True
+                  isMoveOrSurface (Move _ _)  = True
                   isMoveOrSurface (Surface _) = True
-                  isMoveOrSurface _ = False
+                  isMoveOrSurface _           = False
                   hist = myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
           [] ->
