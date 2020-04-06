@@ -478,11 +478,11 @@ gameLoop !precomputed !oldState = do
           }
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
-  debug ("opp candidates (" ++ show (length opponentCandidates) ++ ")")
+  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
   spentTime1 <- getElapsedTime startTime
   debug ("opp: " ++ spentTime1)
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
-  debug ("my candidates (" ++ show (length myCandidates) ++ ")")
+  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
   let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
