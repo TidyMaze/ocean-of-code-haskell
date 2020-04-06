@@ -434,12 +434,11 @@ gameLoop !precomputed !oldState = do
   let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  let maybeClosestWaterTarget = baryFiltered >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed))
-        where
-          baryFiltered = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
+  let maybeClosestWaterTarget = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
   debug ("Closest waters is " ++ show maybeClosestWaterTarget)
-  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeClosestWaterTarget
-  let !maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown maybeClosestWaterTarget afterCoord oppFound myLife oppLife
+  let (!moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
+        getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev (maybeClosestWaterTarget >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed)))
+  let !maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown (fmap fst maybeClosestWaterTarget) afterCoord oppFound myLife oppLife
   let !maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
