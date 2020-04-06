@@ -300,6 +300,10 @@ data Precomputed =
     }
   deriving (Show)
 
+safeHead :: String -> [a] -> a
+safeHead msg []     = error ("NO HEAD in " ++ msg)
+safeHead msg (x:xs) = x
+
 getMoveAction :: Precomputed -> State -> Maybe (Coord, Double) -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
 getMoveAction precomputed state maybeMyBaryWithMeanDev maybeClosestWaterTarget = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
@@ -315,7 +319,7 @@ getMoveAction precomputed state maybeMyBaryWithMeanDev maybeClosestWaterTarget =
         Just PTorpedo -> (max (torpedoCooldown state - 1) 0, sonarCooldown state)
         Just PSonar -> (torpedoCooldown state, max (sonarCooldown state - 1) 0)
         _ -> (torpedoCooldown state, sonarCooldown state)
-    afterCoord = maybe (head $ myCoordHistory state) snd maybeMoveWithDest
+    afterCoord = maybe (safeHead "afterCoord" $ myCoordHistory state) snd maybeMoveWithDest
     maybeMoveWithDest = findMove precomputed (myCoordHistory state) maybeClosestWaterTarget
 
 getMoveActionNoTarget :: Precomputed -> State -> (Order, [Coord], Int, Int, Coord)
@@ -331,7 +335,7 @@ getMoveActionNoTarget precomputed state = (action, newMyCoordHistory, updatedTor
         Just PTorpedo -> (max (torpedoCooldown state - 1) 0, sonarCooldown state)
         Just PSonar -> (torpedoCooldown state, max (sonarCooldown state - 1) 0)
         _ -> (torpedoCooldown state, sonarCooldown state)
-    afterCoord = maybe (head $ myCoordHistory state) snd maybeMoveWithDest
+    afterCoord = maybe (safeHead "afterCoord2" $ myCoordHistory state) snd maybeMoveWithDest
     maybeMoveWithDest = findMove precomputed (myCoordHistory state) Nothing
 
 explosionDamages :: Coord -> Coord -> Int
@@ -416,7 +420,7 @@ findAttackSequence _ state _
   | torpedoCooldown state > 0 = []
 findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce)
   where
-    curCoord = head $ myCoordHistory state
+    curCoord = safeHead "curCoord3" $ myCoordHistory state
     notMoving = [([], curCoord)]
     movingOnce = map (\(d, newC) -> ([Move d (Just $ getPowerToBuy state)], newC)) neighbors
       where
@@ -485,25 +489,36 @@ gameLoop !precomputed !oldState = do
           precomputed
           afterParsingInputsState
           (if oppFound
-             then Just (head opponentCandidates)
+             then Just (safeHead "oppFound" opponentCandidates)
              else Nothing)
   T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
-        if not (null attackSeq)
-          then trace "rushing" (orders, hist, maybeSonarAction)
-          else trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife
-        where
-          bestSeq = fst . head $ attackSeq
-          orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
-          maybeMoveFallback =
-            if any isMoveOrSurface bestSeq
-              then Nothing
-              else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState}))
-          isMoveOrSurface (Move _ _)  = True
-          isMoveOrSurface (Surface _) = True
-          isMoveOrSurface _           = False
-          hist = myCoordHistory afterParsingInputsState
-          maybeSonarAction = Nothing
+        case attackSeq of
+          (x:_) -> trace "rushing" (orders, hist, maybeSonarAction)
+            where bestSeq = fst . safeHead "bestSeq" $ attackSeq
+                  orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
+                  maybeMoveFallback =
+                    if any isMoveOrSurface bestSeq
+                      then Nothing
+                      else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState}))
+                  isMoveOrSurface (Move _ _) = True
+                  isMoveOrSurface (Surface _) = True
+                  isMoveOrSurface _ = False
+                  hist = myCoordHistory afterParsingInputsState
+                  maybeSonarAction = Nothing
+          [] ->
+            trace
+              "deprecated"
+              findActionsDeprecated
+              precomputed
+              afterParsingInputsState
+              maybeMyBaryWithMeanDev
+              maybeOppBaryWithMeanDev
+              maybeClosestWaterTarget
+              opponentCandidates
+              oppFound
+              myLife
+              oppLife
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
