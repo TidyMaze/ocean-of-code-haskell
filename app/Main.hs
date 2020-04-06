@@ -424,7 +424,10 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
     notMoving = [([], curCoord, torpedoCooldown state)]
     movingOnce = map (\(d, newC) -> ([Move d (Just powerBought)], newC, updatedCD)) neighbors
       where
-        powerBought = if torpedoCooldown state > 0 then PTorpedo else getPowerToBuy state
+        powerBought =
+          if torpedoCooldown state > 0
+            then PTorpedo
+            else getPowerToBuy state
         updatedCD =
           case powerBought of
             PTorpedo -> max (torpedoCooldown state - 1) 0
