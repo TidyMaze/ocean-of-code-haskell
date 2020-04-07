@@ -445,7 +445,7 @@ findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] 
 findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSetOfShooting opponentCandidates oppFound =
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
   where
-    moveTarget = oppSetOfShooting >>= minByOption (manhattan afterCoord)
+    moveTarget = oppSetOfShooting >>= minByOption (manhattan $ head $ myCoordHistory afterParsingInputsState)
     (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState mySetOfShooting moveTarget
     stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
     maybeTorpedoAction = getTorpedoAction precomputed oppSetOfShooting oppFound stateAfterMove
