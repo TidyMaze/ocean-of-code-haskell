@@ -6,6 +6,7 @@
 module Main where
 
 import           Control.Monad
+import           Data.Foldable
 import           Data.List
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
@@ -253,7 +254,7 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
       | dist < 4 = getNeighbors coord
 
 findMove :: Precomputed -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
-findMove precomputed visited opp = listToMaybe (sortOn (\(dir, d) -> criteria opp d) neighbors)
+findMove precomputed visited target = listToMaybe (sortOn (\(dir, d) -> criteria target d) neighbors)
   where
     neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) (head visited) visited
     fn x _ = map snd (getUnvisitedWaterNeighborsDir (landMap precomputed) x visited)
@@ -279,10 +280,6 @@ minByOption f xs = Just (minimumBy (comparing f) xs)
 maxByOption _ [] = Nothing
 maxByOption f xs = Just (maximumBy (comparing f) xs)
 
-maxDev = 1
-
-maxDevDef = 4.5
-
 torpedoRange = 4
 
 getTorpedoRange precomputed from = fromMaybe Map.empty (coordsInRange precomputed Map.!? from)
@@ -304,13 +301,13 @@ safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
 safeHead msg (x:xs) = x
 
-getMoveAction :: Precomputed -> State -> Maybe (Coord, Double) -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
-getMoveAction precomputed state maybeMyBaryWithMeanDev maybeClosestWaterTarget = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
+getMoveAction :: Precomputed -> State -> Maybe [Coord] -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
+getMoveAction precomputed state maybeMyTargets target = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
     (action, newMyCoordHistory, powerBought) =
-      case (maybeMoveWithDest, silenceCooldown state, maybeMyBaryWithMeanDev) of
-        (Just (d, to), 0, Just (b, dev))
-          | dev <= maxDevDef && length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+      case (maybeMoveWithDest, silenceCooldown state, maybeMyTargets) of
+        (Just (d, to), 0, Just b)
+          | length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _, _) -> (Surface Nothing, [], Nothing)
@@ -322,7 +319,7 @@ getMoveAction precomputed state maybeMyBaryWithMeanDev maybeClosestWaterTarget =
     afterCoord = maybe curCoord snd maybeMoveWithDest
     curCoord = safeHead "afterCoord" visited
     visited = myCoordHistory state
-    maybeMoveWithDest = findMove precomputed visited maybeClosestWaterTarget
+    maybeMoveWithDest = findMove precomputed visited target
 
 getMoveActionNoTarget :: Precomputed -> State -> (Order, [Coord], Int, Int, Coord)
 getMoveActionNoTarget precomputed state = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
@@ -347,18 +344,17 @@ explosionDamages landing dest =
     1 -> 1
     _ -> 0
 
-getTorpedoAction :: Precomputed -> Maybe Coord -> Bool -> State -> Maybe Order
-getTorpedoAction precomputed target oppFound state =
-  case (torpedoCooldown state, target, oppFound) of
-    (0, Just realTarget, False) -> fmap Torpedo closestToTarget
-      where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely (waterCoords precomputed))
+getTorpedoAction :: Precomputed -> Maybe [Coord] -> Bool -> State -> Maybe Order
+getTorpedoAction precomputed targets oppFound state =
+  case (torpedoCooldown state, targets, oppFound) of
+    (0, Just candidates, False) -> fmap Torpedo closestToTarget
+      where closestToTarget = minByOption (manhattan after) (filter iCanShootSafely candidates)
             after = head $ myCoordHistory state
-            iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt
+            iCanShootSafely closeTarget = iCanHitThisCloseCoord && notGettingHurt
               where
                 iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
                 notGettingHurt = not (inExplosionRange closeTarget after)
-                hurtingEnemy = inExplosionRange closeTarget realTarget
-    (0, Just realTarget, True) -> fmap Torpedo closestToTarget
+    (0, Just [realTarget], True) -> fmap Torpedo closestToTarget
       where after = head $ myCoordHistory state
             closestToTarget =
               fmap
@@ -374,20 +370,17 @@ getTorpedoAction precomputed target oppFound state =
               where
                 dmgReceived = explosionDamages c after
                 dmgGiven = explosionDamages c realTarget
-    (0, Nothing, _) -> Nothing
+    (0, Just [], _) -> Nothing
     (_, _, _) -> Nothing
 
 groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
 groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
 
-getSonarAction :: Int -> [Coord] -> Maybe (Coord, Double) -> Maybe Order
-getSonarAction cooldown _ _
+getSonarAction :: Int -> [Coord] -> Maybe Order
+getSonarAction cooldown _
   | cooldown > 0 = Nothing
-getSonarAction _ [] _ = Nothing
-getSonarAction _ _ Nothing = Nothing
-getSonarAction _ _ (Just (_, dev))
-  | dev <= 2 = Nothing
-getSonarAction _ candidates _ = Just (Sonar (Just (fst biggestSector)))
+getSonarAction _ [] = Nothing
+getSonarAction _ candidates = Just (Sonar (Just (fst biggestSector)))
   where
     biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
     countedCandidatesBySector = Map.assocs (Main.groupBy sectorFromCoord candidates)
@@ -448,14 +441,24 @@ findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequ
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
     getDmg _ = []
 
-findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound =
+findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] -> [Coord] -> Bool -> ([Order], [Coord], Maybe Order)
+findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSetOfShooting opponentCandidates oppFound =
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
   where
-    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
-      getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev (maybeClosestWaterTarget >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed)))
+    moveTarget = oppSetOfShooting >>= minByOption (manhattan afterCoord)
+    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState mySetOfShooting moveTarget
     stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
-    maybeTorpedoAction = getTorpedoAction precomputed (fmap fst maybeClosestWaterTarget) oppFound stateAfterMove
-    maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
+    maybeTorpedoAction = getTorpedoAction precomputed oppSetOfShooting oppFound stateAfterMove
+    maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates
+
+findCenterOfExplosion :: Precomputed -> [Coord] -> Maybe [Coord]
+findCenterOfExplosion _ [x] = Just [x]
+findCenterOfExplosion _ coords
+  | length coords > 9 = Nothing
+findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
+  where
+    fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
+    fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
@@ -494,13 +497,12 @@ gameLoop !precomputed !oldState = do
   debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
   spentTime2 <- getElapsedTime startTime
   debug ("me: " ++ spentTime2)
-  let maybeOppBaryWithMeanDev = baryMeanDev opponentCandidates
+  let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
-  let maybeMyBaryWithMeanDev = baryMeanDev myCandidates
+  let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
   debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
   debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  let maybeClosestWaterTarget = mfilter (\(b, dev) -> dev <= maxDev) maybeOppBaryWithMeanDev
-  debug ("Closest waters is " ++ show maybeClosestWaterTarget)
+  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
   let attackSeq =
         sortOn (\(orders, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         findAttackSequence
@@ -524,7 +526,7 @@ gameLoop !precomputed !oldState = do
                   isMoveOrSurface _           = False
                   hist = myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
-          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound
+          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
