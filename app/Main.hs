@@ -301,16 +301,16 @@ safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
 safeHead msg (x:xs) = x
 
-getMoveAction :: Precomputed -> State -> Maybe [Coord] -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
-getMoveAction precomputed state maybeMyTargets target = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
+getMoveAction :: Precomputed -> State -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
+getMoveAction precomputed state target = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
     (action, newMyCoordHistory, powerBought) =
-      case (maybeMoveWithDest, silenceCooldown state, maybeMyTargets) of
-        (Just (d, to), 0, Just b)
+      case (maybeMoveWithDest, silenceCooldown state) of
+        (Just (d, to), 0)
           | length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
-        (Just (d, to), _, _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
+        (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
-        (Nothing, _, _) -> (Surface Nothing, [], Nothing)
+        (Nothing, _) -> (Surface Nothing, [], Nothing)
     (updatedTorpedoCooldown, updatedSonarCooldown) =
       case powerBought of
         Just PTorpedo -> (max (torpedoCooldown state - 1) 0, sonarCooldown state)
@@ -446,7 +446,7 @@ findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSet
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
   where
     moveTarget = oppSetOfShooting >>= minByOption (manhattan $ head $ myCoordHistory afterParsingInputsState)
-    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState mySetOfShooting moveTarget
+    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState moveTarget
     stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
     maybeTorpedoAction = getTorpedoAction precomputed oppSetOfShooting oppFound stateAfterMove
     maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates
