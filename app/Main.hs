@@ -281,7 +281,7 @@ maxByOption f xs = Just (maximumBy (comparing f) xs)
 
 maxDev = 1
 
-maxDevDef = 4
+maxDevDef = 4.5
 
 torpedoRange = 4
 
