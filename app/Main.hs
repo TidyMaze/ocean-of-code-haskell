@@ -347,27 +347,29 @@ explosionDamages landing dest =
     1 -> 1
     _ -> 0
 
-getTorpedoAction :: Precomputed -> Int -> Maybe Coord -> Coord -> Bool -> Int -> Int -> Maybe Order
-getTorpedoAction precomputed updatedTorpedoCooldown target after oppFound myLife oppLife =
-  case (updatedTorpedoCooldown, target, oppFound) of
+getTorpedoAction :: Precomputed -> Maybe Coord -> Bool -> State -> Maybe Order
+getTorpedoAction precomputed target oppFound state =
+  case (torpedoCooldown state, target, oppFound) of
     (0, Just realTarget, False) -> fmap Torpedo closestToTarget
       where closestToTarget = minByOption (manhattan realTarget) (filter iCanShootSafely (waterCoords precomputed))
+            after = head $ myCoordHistory state
             iCanShootSafely closeTarget = iCanHitThisCloseCoord && hurtingEnemy && notGettingHurt
               where
                 iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
                 notGettingHurt = not (inExplosionRange closeTarget after)
                 hurtingEnemy = inExplosionRange closeTarget realTarget
     (0, Just realTarget, True) -> fmap Torpedo closestToTarget
-      where closestToTarget =
+      where after = head $ myCoordHistory state
+            closestToTarget =
               fmap
                 (\(c, dmgGiven, dmgReceived, diffDmg) -> c)
                 (maxByOption (\(c, dmgGiven, dmgReceived, diffDmg) -> (dmgGiven, -dmgReceived)) (filter dontDoAnythingStupid (map getShootData (waterCoords precomputed))))
             dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) = iCanShootIt && doNotSuicide && iDealDamages && canTakeALotIfIKill
               where
                 iCanShootIt = inTorpedoRange precomputed after c
-                doNotSuicide = dmgReceived < myLife
+                doNotSuicide = dmgReceived < myLife state
                 iDealDamages = dmgGiven > 0
-                canTakeALotIfIKill = diffDmg > 0 || (dmgGiven >= oppLife && dmgReceived < myLife)
+                canTakeALotIfIKill = diffDmg > 0 || (dmgGiven >= oppLife state && dmgReceived < myLife state)
             getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
               where
                 dmgReceived = explosionDamages c after
@@ -413,6 +415,8 @@ data State =
     , sonarCooldown   :: {-# UNPACK #-}!Int
     , silenceCooldown :: {-# UNPACK #-}!Int
     , mineCooldown    :: {-# UNPACK #-}!Int
+    , myLife          :: {-# UNPACK #-}!Int
+    , oppLife         :: {-# UNPACK #-}!Int
     }
   deriving (Show, Eq)
 
@@ -444,12 +448,13 @@ findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequ
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
     getDmg _ = []
 
-findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound myLife oppLife =
+findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound =
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
   where
     (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) =
       getMoveAction precomputed afterParsingInputsState maybeMyBaryWithMeanDev (maybeClosestWaterTarget >>= (\(b, meanDev) -> minByOption (manhattan b) (waterCoords precomputed)))
-    maybeTorpedoAction = getTorpedoAction precomputed updatedTorpedoCooldown (fmap fst maybeClosestWaterTarget) afterCoord oppFound myLife oppLife
+    stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
+    maybeTorpedoAction = getTorpedoAction precomputed (fmap fst maybeClosestWaterTarget) oppFound stateAfterMove
     maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates maybeOppBaryWithMeanDev
 
 gameLoop :: Precomputed -> State -> IO ()
@@ -477,6 +482,8 @@ gameLoop !precomputed !oldState = do
           , sonarCooldown = sonarcooldown
           , silenceCooldown = silencecooldown
           , mineCooldown = minecooldown
+          , myLife = myLife
+          , oppLife = oppLife
           }
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
@@ -506,7 +513,7 @@ gameLoop !precomputed !oldState = do
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         case attackSeq of
           (x:_) -> trace "rushing" (orders, hist, maybeSonarAction)
-            where bestSeq = (\(a,b,c) -> a) . safeHead "bestSeq" $ attackSeq
+            where bestSeq = (\(a, b, c) -> a) . safeHead "bestSeq" $ attackSeq
                   orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
                   maybeMoveFallback =
                     if any isMoveOrSurface bestSeq
@@ -517,19 +524,7 @@ gameLoop !precomputed !oldState = do
                   isMoveOrSurface _           = False
                   hist = myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
-          [] ->
-            trace
-              "deprecated"
-              findActionsDeprecated
-              precomputed
-              afterParsingInputsState
-              maybeMyBaryWithMeanDev
-              maybeOppBaryWithMeanDev
-              maybeClosestWaterTarget
-              opponentCandidates
-              oppFound
-              myLife
-              oppLife
+          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev maybeClosestWaterTarget opponentCandidates oppFound
   spentTime <- getElapsedTime startTime
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
   let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
@@ -560,5 +555,7 @@ main = do
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
   send $ show startX ++ " " ++ show startY
-  let state = State {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3}
+  let state =
+        State
+          {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
   gameLoop precomputed state
