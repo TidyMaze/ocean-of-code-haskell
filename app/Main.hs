@@ -196,13 +196,13 @@ singleInSetIf !cond coord =
 enumerate = zip [0 ..]
 
 getSilenceRange :: Precomputed -> [Coord] -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visited (Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+getSilenceRange precomputed visited c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
     inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
     inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
     inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
     inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
-    valid (coord, dir, index) = index <= 4 && coord `notElem` visited && not (landMap precomputed V.! y coord V.! x coord)
+    valid (coord, dir, index) = coord == c || (index <= 4 && coord `notElem` visited && not (landMap precomputed V.! y coord V.! x coord))
 
 execOrder :: Precomputed -> [Coord] -> Order -> Coord -> S.Set Coord
 execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
@@ -445,7 +445,9 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
     silencingOnce =
       if silenceCooldown state > 0
         then []
-        else []
+        else map (\(newC, d, size) -> ([Silence (Just (d, size))], newC, torpedoCooldown state)) silenceCoords
+      where
+        silenceCoords = S.toList $ getSilenceRange precomputed (myCoordHistory state) curCoord
 
 findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord, Int)] -> [([Order], Int, Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
