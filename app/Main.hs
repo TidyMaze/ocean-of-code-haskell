@@ -22,7 +22,7 @@ data Direction
   | S
   | W
   | E
-  deriving (Read, Enum, Show, Eq)
+  deriving (Read, Enum, Show, Eq, Ord)
 
 data Power
   = PTorpedo
@@ -179,12 +179,12 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
 findPositionFromHistory :: Precomputed -> [Order] -> S.Set Coord
-findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed) (S.fromList (waterCoords precomputed)) history
+findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed []) (S.fromList (waterCoords precomputed)) history
 
-execOrderBulk :: Precomputed -> S.Set Coord -> Order -> S.Set Coord
-execOrderBulk !precomputed !candidates !action = S.foldl' mergeCoordinates S.empty candidates
+execOrderBulk :: Precomputed -> [Coord] -> S.Set Coord -> Order -> S.Set Coord
+execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinates S.empty candidates
   where
-    mergeCoordinates acc candidate = S.union acc (execOrder precomputed action candidate)
+    mergeCoordinates acc candidate = S.union acc (execOrder precomputed visited action candidate)
 
 singleInSetIf :: Bool -> Coord -> S.Set Coord
 singleInSetIf !cond coord =
@@ -193,17 +193,27 @@ singleInSetIf !cond coord =
     then [coord]
     else []
 
-execOrder :: Precomputed -> Order -> Coord -> S.Set Coord
-execOrder precomputed (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
+enumerate = zip [0 ..]
+
+getSilenceRange :: Precomputed -> [Coord] -> Coord -> S.Set (Coord, Direction, Int)
+getSilenceRange precomputed visited (Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+  where
+    inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    valid (coord, dir, index) = index <= 4 && coord `notElem` visited && not (landMap precomputed V.! y coord V.! x coord)
+
+execOrder :: Precomputed -> [Coord] -> Order -> Coord -> S.Set Coord
+execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
   where
     newC = addDirToCoord c direction
-execOrder precomputed (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
-execOrder _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
-execOrder precomputed (Silence _) c@(Coord cX cY) =
-  S.fromList $! filter (\(Coord tx ty) -> (tx == cX && ty /= cY) || (tx /= cX && ty == cY) || (tx == cX && ty == cY)) (Map.keys (fromMaybe Map.empty (coordsInRange precomputed Map.!? c)))
-execOrder _ otherOrder state = S.fromList [state]
+execOrder precomputed _ (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
+execOrder _ _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
+execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (getSilenceRange precomputed visited c)
+execOrder _ _ otherOrder state = S.fromList [state]
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -417,7 +427,7 @@ findAttackSequence :: Precomputed -> State -> Maybe Coord -> [([Order], Int, Int
 findAttackSequence _ _ Nothing = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
-findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce)
+findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce ++ silencingOnce)
   where
     curCoord = safeHead "curCoord3" $ myCoordHistory state
     notMoving = [([], curCoord, torpedoCooldown state)]
@@ -432,6 +442,10 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
             PTorpedo -> max (torpedoCooldown state - 1) 0
             _        -> torpedoCooldown state
         neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord (myCoordHistory state)
+    silencingOnce =
+      if silenceCooldown state > 0
+        then []
+        else []
 
 findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], Coord, Int)] -> [([Order], Int, Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
