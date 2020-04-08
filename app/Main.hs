@@ -539,11 +539,11 @@ gameLoop !precomputed !oldState = do
                   maybeMoveFallback =
                     if any isMoveOrSurface bestSeq
                       then Nothing
-                      else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = myCoordHistory afterParsingInputsState}))
-                  isMoveOrSurface (Move _ _)  = True
+                      else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = hist}))
+                  isMoveOrSurface (Move _ _) = True
                   isMoveOrSurface (Surface _) = True
-                  isMoveOrSurface _           = False
-                  hist = myCoordHistory afterParsingInputsState ++ newCoords
+                  isMoveOrSurface _ = False
+                  hist = (reverse newCoords) ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
           [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound
   spentTime <- getElapsedTime startTime
