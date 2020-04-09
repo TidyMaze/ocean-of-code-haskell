@@ -215,12 +215,12 @@ singleInSetIf !cond coord =
 enumerate = zip [0 ..]
 
 getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.fromList $ foldl' union [] [inNorth, inSouth, inWest, inEast]
   where
-    !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    !inNorth = takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    !inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    !inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    !inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
     valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed !! y coord !! x coord))
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
