@@ -19,6 +19,8 @@ import qualified Data.Vector     as V
 import           Debug.Trace     as T
 import           GHC.Generics    (Generic)
 import           System.IO
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Internal as LI
 
 data Direction
   = N
@@ -510,6 +512,12 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
+shortEncode :: Binary a => a -> String
+shortEncode e = show $ map rep $ LI.unpackChars $ encode e
+  where
+    rep '\NUL' = '#'
+    rep e = e
+
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
   input_line <- getLine
@@ -538,7 +546,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
-  debug $ show $ encode afterParsingInputsState
+--  debug $ shortEncode afterParsingInputsState
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
