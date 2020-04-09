@@ -58,13 +58,18 @@ data Order
 instance Show Order where
   show = showOrder
 
-showOrder (Move dir power) = "MOVE " ++ show dir ++ " " ++ maybe "" showPower power
+instance Read Order where
+  readsPrec _ s = [(parsed, drop eaten s)]
+    where (parsed, eaten) = parseOrder s
+
+showOrder (Move dir power) = "MOVE " ++ show dir ++ maybe "" ((" " ++) . showPower) power
 showOrder (Torpedo (Coord x y)) = "TORPEDO " ++ show x ++ " " ++ show y
 showOrder (Msg message) = "MSG " ++ message
-showOrder (Surface sector) = "SURFACE " ++ maybe "" show sector
-showOrder (Silence dirSize) = "SILENCE " ++ maybe "" (\(d, s) -> show d ++ " " ++ show s) dirSize
-showOrder (Sonar sector) = "SONAR " ++ maybe "" show sector
-showOrder (Mine dir) = "MINE " ++ maybe "" show dir
+showOrder (Surface sector) = "SURFACE" ++ maybe "" ((" " ++) . show) sector
+showOrder (Silence dirSize) = "SILENCE" ++ maybe "" (\(d, s) -> " " ++ show d ++ " " ++ show s) dirSize
+showOrder (Sonar sector) = "SONAR" ++ maybe "" ((" " ++) . show) sector
+showOrder (SonarResult sector result) = "SONARRESULT " ++ show sector ++ " " ++ show result
+showOrder (Mine dir) = "MINE" ++ maybe "" ((" " ++) . show) dir
 showOrder (Trigger (Coord x y)) = "TRIGGER " ++ show x ++ " " ++ show y
 
 splitOn :: (a -> Bool) -> [a] -> [[a]]
@@ -104,8 +109,8 @@ parseSurface rawSector = Surface (Just (read rawSector :: Int))
 
 parseSonar rawSector = Sonar (Just (read rawSector :: Int))
 
-parseOrder :: String -> Order
-parseOrder o = process (preprocess o)
+parseOrder :: String -> (Order, Int)
+parseOrder o = (process (preprocess o), length o)
   where
     preprocess raw = splitEq ' ' $ trim raw
     process ["MOVE", rawDir]        = parseMove rawDir
@@ -171,8 +176,6 @@ getPowerToBuy state = maybe PTorpedo fst3 found
     buyList = [(PTorpedo, torpedoCooldown state, 3), (PSilence, silenceCooldown state, 6), (PSonar, sonarCooldown state, 4), (PMine, mineCooldown state, 3)]
     found = find (\(power, count, max) -> count > 0) buyList :: Maybe (Power, Int, Int)
 
-allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
-
 findStartCoord :: [Coord] -> Int -> Int -> Coord
 findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCenter) waterCoords
   where
@@ -198,11 +201,12 @@ enumerate = zip [0 ..]
 getSilenceRange :: Precomputed -> [Coord] -> Coord -> S.Set (Coord, Direction, Int)
 getSilenceRange precomputed visited c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
-    inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
-    valid (coord, dir, index) = coord == c || (index <= 4 && coord `notElem` visited && not (landMap precomputed V.! y coord V.! x coord))
+    !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed V.! y coord V.! x coord))
+    !visitedSet = S.fromList visited
 
 execOrder :: Precomputed -> [Coord] -> Order -> Coord -> S.Set Coord
 execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
@@ -230,7 +234,8 @@ getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) n
 
 getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWaterNeighbors landMap c)
   where
-    unvisitedWater (d, dest) = dest `notElem` visited
+    unvisitedWater (d, dest) = dest `S.notMember` visitedSet
+    visitedSet = S.fromList visited
 
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c = aux initDist initQ
@@ -401,7 +406,7 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
     parseNew _ = Nothing
 
 buildNewOpponentHistory oldOpponentHistory sonarResultAction "NA" = oldOpponentHistory ++ maybeToList sonarResultAction
-buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ parseOrders opponentOrders
+buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ map fst (parseOrders opponentOrders)
 
 getElapsedTime startTime = do
   endTime <- getCurrentTime
@@ -449,7 +454,9 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
       where
         silenceCoords = S.toList $ getSilenceRange precomputed (myCoordHistory state) curCoord
 
-coordsBetween (Coord fx fy) (Coord tx ty) = [Coord x y | x <- if tx >= fx then [fx .. tx] else [fx, fx-1 .. tx], y <- if ty >= fy then [fy .. ty] else [fy, fy-1 .. ty]]
+coordsBetween (Coord fx fy) (Coord tx ty) = res
+  where
+    !res = [Coord x y | x <- if tx >= fx then [fx .. tx] else [fx, fx-1 .. tx], y <- if ty >= fy then [fy .. ty] else [fy, fy-1 .. ty]]
 
 findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], [Coord], Int)] -> [([Order], [Coord], Int, Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
@@ -498,7 +505,7 @@ gameLoop !precomputed !oldState = do
   debug ("third line " ++ opponentOrders)
   let afterParsingInputsState =
         oldState
-          { myCoordHistory = Coord x y : myCoordHistory oldState
+          { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
           , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
           , torpedoCooldown = torpedocooldown
           , sonarCooldown = sonarcooldown
@@ -507,6 +514,9 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
+
+  debug $ show afterParsingInputsState
+
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
@@ -543,7 +553,7 @@ gameLoop !precomputed !oldState = do
                   isMoveOrSurface (Move _ _) = True
                   isMoveOrSurface (Surface _) = True
                   isMoveOrSurface _ = False
-                  hist = (reverse newCoords) ++ myCoordHistory afterParsingInputsState
+                  hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
           [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound
   spentTime <- getElapsedTime startTime
@@ -563,6 +573,7 @@ main = do
   let myid = read (input !! 2) :: Int
   !landMap <- fmap V.fromList (replicateM height $ V.fromList . map (== 'x') <$> getLine)
   startTime <- getCurrentTime
+  let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
   let !precomputed = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
         where
