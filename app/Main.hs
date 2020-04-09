@@ -198,9 +198,9 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
 findPositionFromHistory :: Precomputed -> [Order] -> S.Set Coord
-findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed []) (S.fromList (waterCoords precomputed)) history
+findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed S.empty) (S.fromList (waterCoords precomputed)) history
 
-execOrderBulk :: Precomputed -> [Coord] -> S.Set Coord -> Order -> S.Set Coord
+execOrderBulk :: Precomputed -> S.Set Coord -> S.Set Coord -> Order -> S.Set Coord
 execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinates S.empty candidates
   where
     mergeCoordinates acc candidate = S.union acc (execOrder precomputed visited action candidate)
@@ -214,17 +214,16 @@ singleInSetIf !cond coord =
 
 enumerate = zip [0 ..]
 
-getSilenceRange :: Precomputed -> [Coord] -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visited c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
     !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
     !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
     !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
     !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
     valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed !! y coord !! x coord))
-    !visitedSet = S.fromList visited
 
-execOrder :: Precomputed -> [Coord] -> Order -> Coord -> S.Set Coord
+execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
 execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
   where
     newC = addDirToCoord c direction
@@ -250,8 +249,7 @@ getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) n
 
 getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWaterNeighbors landMap c)
   where
-    unvisitedWater (d, dest) = dest `S.notMember` visitedSet
-    visitedSet = S.fromList visited
+    unvisitedWater (d, dest) = dest `S.notMember` visited
 
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c = aux initDist initQ
@@ -286,8 +284,9 @@ bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
 findMove :: Precomputed -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
 findMove precomputed visited target = listToMaybe (sortOn (\(dir, d) -> criteria target d) neighbors)
   where
-    neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) (head visited) visited
-    fn x _ = map snd (getUnvisitedWaterNeighborsDir (landMap precomputed) x visited)
+    visitedSet = S.fromList visited
+    neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) (head visited) visitedSet
+    fn x _ = map snd (getUnvisitedWaterNeighborsDir (landMap precomputed) x visitedSet)
     criteria (Just o) d = (byLonguestPath d, fromMaybe 1000 (distancesToO Map.!? d))
       where
         distancesToO = bfs (waterCoords precomputed) fn o
@@ -339,7 +338,7 @@ getMoveAction precomputed state target = (action, newMyCoordHistory, updatedTorp
     (action, newMyCoordHistory, powerBought) =
       case (maybeMoveWithDest, silenceCooldown state) of
         (Just (d, to), 0)
-          | length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visited) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+          | length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _) -> (Surface Nothing, [], Nothing)
@@ -351,6 +350,7 @@ getMoveAction precomputed state target = (action, newMyCoordHistory, updatedTorp
     afterCoord = maybe curCoord snd maybeMoveWithDest
     curCoord = safeHead "afterCoord" visited
     visited = myCoordHistory state
+    visitedSet = S.fromList visited
     maybeMoveWithDest = findMove precomputed visited target
 
 getMoveActionNoTarget :: Precomputed -> State -> (Order, [Coord], Int, Int, Coord)
@@ -454,6 +454,7 @@ findAttackSequence _ state _
 findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce ++ silencingOnce)
   where
     curCoord = safeHead "curCoord3" $ myCoordHistory state
+    visitedSet = S.fromList $ myCoordHistory state
     notMoving = [([], [curCoord], torpedoCooldown state)]
     movingOnce = map (\(d, newC) -> ([Move d (Just powerBought)], [newC], updatedCD)) neighbors
       where
@@ -465,13 +466,13 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
           case powerBought of
             PTorpedo -> max (torpedoCooldown state - 1) 0
             _        -> torpedoCooldown state
-        neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord (myCoordHistory state)
+        neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet
     silencingOnce =
       if silenceCooldown state > 0
         then []
         else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) silenceCoords
       where
-        silenceCoords = S.toList $ getSilenceRange precomputed (myCoordHistory state) curCoord
+        silenceCoords = S.toList $ getSilenceRange precomputed visitedSet curCoord
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
