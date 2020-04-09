@@ -49,6 +49,7 @@ executable OceanOfCodeHaskell-exe
     , time
     , containers
     , vector
+    , binary
   default-language: Haskell2010
 
 test-suite OceanOfCodeHaskell-test

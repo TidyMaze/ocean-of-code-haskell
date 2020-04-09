@@ -1,11 +1,13 @@
 {-# LANGUAGE BangPatterns   #-}
 {-# LANGUAGE TupleSections  #-}
 {-# OPTIONS_GHC -XStrict #-}
+{-# LANGUAGE DeriveGeneric  #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Main where
 
 import           Control.Monad
+import           Data.Binary
 import           Data.Foldable
 import           Data.List
 import qualified Data.Map.Strict as Map
@@ -15,6 +17,7 @@ import qualified Data.Set        as S
 import           Data.Time.Clock
 import qualified Data.Vector     as V
 import           Debug.Trace     as T
+import           GHC.Generics    (Generic)
 import           System.IO
 
 data Direction
@@ -22,14 +25,18 @@ data Direction
   | S
   | W
   | E
-  deriving (Read, Enum, Show, Eq, Ord)
+  deriving (Read, Enum, Show, Eq, Ord, Generic)
+
+instance Binary Direction
 
 data Power
   = PTorpedo
   | PSonar
   | PSilence
   | PMine
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance Binary Power
 
 showPower PTorpedo = "TORPEDO"
 showPower PSonar   = "SONAR"
@@ -41,7 +48,9 @@ data Coord =
     { x :: {-# UNPACK #-}!Int
     , y :: {-# UNPACK #-}!Int
     }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
+
+instance Binary Coord
 
 data Order
   = Move Direction (Maybe Power)
@@ -53,14 +62,17 @@ data Order
   | SonarResult Int Bool
   | Mine (Maybe Direction)
   | Trigger Coord
-  deriving (Eq)
+  deriving (Eq, Generic)
+
+instance Binary Order
 
 instance Show Order where
   show = showOrder
 
 instance Read Order where
   readsPrec _ s = [(parsed, drop eaten s)]
-    where (parsed, eaten) = parseOrder s
+    where
+      (parsed, eaten) = parseOrder s
 
 showOrder (Move dir power) = "MOVE " ++ show dir ++ maybe "" ((" " ++) . showPower) power
 showOrder (Torpedo (Coord x y)) = "TORPEDO " ++ show x ++ " " ++ show y
@@ -426,7 +438,9 @@ data State =
     , myLife          :: {-# UNPACK #-}!Int
     , oppLife         :: {-# UNPACK #-}!Int
     }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance Binary State
 
 findAttackSequence :: Precomputed -> State -> Maybe Coord -> [([Order], [Coord], Int, Int)]
 findAttackSequence _ _ Nothing = []
@@ -456,7 +470,17 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
-    !res = [Coord x y | x <- if tx >= fx then [fx .. tx] else [fx, fx-1 .. tx], y <- if ty >= fy then [fy .. ty] else [fy, fy-1 .. ty]]
+    !res =
+      [ Coord x y
+      | x <-
+          if tx >= fx
+            then [fx .. tx]
+            else [fx,fx - 1 .. tx]
+      , y <-
+          if ty >= fy
+            then [fy .. ty]
+            else [fy,fy - 1 .. ty]
+      ]
 
 findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], [Coord], Int)] -> [([Order], [Coord], Int, Int)]
 findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
@@ -514,9 +538,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
-
-  debug $ show afterParsingInputsState
-
+  debug $ show $ encode afterParsingInputsState
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
@@ -550,9 +572,9 @@ gameLoop !precomputed !oldState = do
                     if any isMoveOrSurface bestSeq
                       then Nothing
                       else trace "fallback" (Just (getMoveActionNoTarget precomputed afterParsingInputsState {myCoordHistory = hist}))
-                  isMoveOrSurface (Move _ _) = True
+                  isMoveOrSurface (Move _ _)  = True
                   isMoveOrSurface (Surface _) = True
-                  isMoveOrSurface _ = False
+                  isMoveOrSurface _           = False
                   hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
           [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound

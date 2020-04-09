@@ -20,5 +20,7 @@
     <orderEntry type="library" name="vector-0.12.1.2" level="project" />
     <orderEntry type="library" name="primitive-0.7.0.1" level="project" />
     <orderEntry type="library" name="base-4.13.0.0" level="project" />
+    <orderEntry type="library" name="binary-0.8.7.0" level="project" />
+    <orderEntry type="library" name="bytestring-0.10.10.0" level="project" />
   </component>
 </module>
