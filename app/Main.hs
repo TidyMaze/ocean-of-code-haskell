@@ -8,19 +8,19 @@ module Main where
 
 import           Control.Monad
 import           Data.Binary
+import qualified Data.ByteString.Lazy   as LBS
 import           Data.Foldable
 import           Data.List
-import qualified Data.Map.Strict as Map
+import qualified Data.List.Split        as Split
+import qualified Data.Map.Strict        as Map
 import           Data.Maybe
 import           Data.Ord
-import qualified Data.Set        as S
+import qualified Data.Set               as S
 import           Data.Time.Clock
-import qualified Data.Vector     as V
-import           Debug.Trace     as T
-import           GHC.Generics    (Generic)
+import qualified Data.Vector            as V
+import           Debug.Trace            as T
+import           GHC.Generics           (Generic)
 import           System.IO
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.List.Split as Split
 
 import qualified Codec.Compression.Zlib as Zlib
 
@@ -516,7 +516,9 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
-timeoutSample1 = "\"x\\156\\229TQ\\SYN\\195 \\b3b\\247\\183\\251\\USgo7\\219D\\129\\160v\\ETBX\\159\\212\\138\\SOHC\\240\\181\\DC4}\\222c*b\\ETX\\250VO\\211U\\213\\129\\249\\221&>|\\232>\\201\\EM\\DC4W\\t\\167\\223\\RS[l\\179L\\FSh\\216\\185\\b\\208\\200G\\b\\231w\\226\\\\lU\\DC2\\SOi\\220\\212\\193\\135\\SUB?\\SO\\172\\DC1K\\133\\177.\\166\\165 2\\240\\238c\\206\\128\\187\\SYN\\253$\\184\\128*D\\226B\\250\\221\\212\\129\\148\\161Y#\\169<\\230|\\210\\&9\\242=\\\"bSH\\139\\153\\243s\\153_c\\171\\147P\\235$w\\171@s9\\240U\\166\\187x[\\173\\161:\\164\\134[\\173\\135H\\135\\136Cd\\184\\220\\240\\175Y\\208!Y]\\196\\SOH\\166r\\243\\235\\b\\ETB^\\b:,\\245I\\SYNX\\172\\143\\&0k\\229\\225@Y8\\GSh\\159\\238\\206\\200\\134\\203QwEp\\176\\178\\147\\r\\198\\208\\US\\138\\225\\204n\\221\\190\\185\\178\\a>L\\185\\\"\\DC4\\170+\\229,\\197\\210=\\147b\\NAKu\\239\\160v\\209\\NAKk}e\\198?M\\151'=\\134\\184l\\254\\NUL\\GS\\247\\ACK\\139\""
+timeoutSample1 = ""
+
+timeoutSample1Pre = ""
 
 shortEncode :: Binary a => a -> String
 shortEncode e = show $ Zlib.compress $ encode e
@@ -597,8 +599,15 @@ gameLoop !precomputed !oldState = do
   send out
   gameLoop precomputed resState
 
-main :: IO ()
-main = do
+buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
+  where
+    mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
+    getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
+      where
+        fn = map snd . getWaterNeighbors landMap
+
+game :: IO ()
+game = do
   hSetBuffering stdout NoBuffering -- DO NOT REMOVE
   input_line <- getLine
   let input = words input_line
@@ -609,13 +618,8 @@ main = do
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
-  let !precomputed = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
-        where
-          mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
-          getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
-            where
-              fn = map snd . getWaterNeighbors landMap
---  debug (show precomputed)
+  debug $ show $ shortEncode (waterCoords, landMap)
+  let !precomputed = buildPrecomputed waterCoords landMap
   let Coord startX startY = findStartCoord waterCoords width height
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
@@ -625,3 +629,17 @@ main = do
         State
           {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
   gameLoop precomputed state
+
+--  debug (show precomputed)
+perf :: IO ()
+perf = do
+  res <- findOrders precomputed state
+  debug $ show res
+  return ()
+  where
+    precomputed = buildPrecomputed waterCoords landMap
+    state = shortDecode timeoutSample1
+    (waterCoords, landMap) = shortDecode timeoutSample1Pre :: ([Coord], [[Bool]])
+
+main :: IO ()
+main = game
