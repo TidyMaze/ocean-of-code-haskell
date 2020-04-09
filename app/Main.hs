@@ -20,7 +20,6 @@ import           Debug.Trace     as T
 import           GHC.Generics    (Generic)
 import           System.IO
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Internal as LI
 import qualified Data.List.Split as Split
 
 import qualified Codec.Compression.Zlib as Zlib
@@ -515,11 +514,13 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
+timeoutSample1 = "x\156\173TY\174\195 \f\244\146\208\210\190\191\222\255<\189J\143Q\214\NUL\DC3 H\175\SYNV4\142\&3\RSc+D\193>$\148\SO\227\217\250\&1%\176s\158\250\216\201\206\&1M|\241+\153\215\205\212\206L\250\222\&4\204\186\162\148rX\155X%)\147*O\181HG\179\&6D\ESC\150\SUB\223\193\184\223\170L{\a\177\221\170s\167\&7\154\205\GS\216\DLE\t\211]\155G\200;*\198C)V\159\139\EM\141\247@1\175\&3\ENQSr{J\181T\139\246\130&\254\NUL?\SOH?\NUL[\192w\192\&7\192\ACK\240\SO\CAN\175\NAK\183P\NUL3\245\r\227<x\n`\ENQ\188\SOH\206z\223\&1t\184\&4\174\206\&9<\253f\241\198\NAKmz\141\206>\173\168\227\196\NUL\142)\STX\133\201\167PS\172v\233\179,\DC4\226\163\163\210\157\&0\239\&9\203x\228}V~AaQ\233\152\202p\164S>z\145\160\139w\184\162\242\144\&0f\147y3\194\211\187\132\193\245X\132/'\"\224T]\135\253\193$\212\167\148\221=\223\254\DEL\251\171\231\n#g(\150\CAN\221_\241z\193=W\246v?Vv\EOTl\244\139\200\191\130\253\v{\SYN\a\a"
+
 shortEncode :: Binary a => a -> String
-shortEncode e = show $ LI.unpackChars $ Zlib.compress $ encode e
-  where
-    rep '\NUL' = '#'
-    rep e = e
+shortEncode e = show $ Zlib.compress $ encode e
+
+shortDecode :: Binary a => String -> a
+shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
@@ -549,7 +550,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
-  debug $ intercalate "\n" (Split.chunksOf 100 $ shortEncode afterParsingInputsState)
+  debug $ shortEncode afterParsingInputsState
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
