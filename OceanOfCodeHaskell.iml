@@ -22,5 +22,7 @@
     <orderEntry type="library" name="base-4.13.0.0" level="project" />
     <orderEntry type="library" name="binary-0.8.7.0" level="project" />
     <orderEntry type="library" name="bytestring-0.10.10.0" level="project" />
+    <orderEntry type="library" name="split-0.2.3.4" level="project" />
+    <orderEntry type="library" name="zlib-0.6.2.1" level="project" />
   </component>
 </module>

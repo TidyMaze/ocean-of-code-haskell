@@ -21,6 +21,9 @@ import           GHC.Generics    (Generic)
 import           System.IO
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Internal as LI
+import qualified Data.List.Split as Split
+
+import qualified Codec.Compression.Zlib as Zlib
 
 data Direction
   = N
@@ -513,7 +516,7 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
 shortEncode :: Binary a => a -> String
-shortEncode e = show $ map rep $ LI.unpackChars $ encode e
+shortEncode e = show $ LI.unpackChars $ Zlib.compress $ encode e
   where
     rep '\NUL' = '#'
     rep e = e
@@ -546,7 +549,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
---  debug $ shortEncode afterParsingInputsState
+  debug $ intercalate "\n" (Split.chunksOf 100 $ shortEncode afterParsingInputsState)
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
