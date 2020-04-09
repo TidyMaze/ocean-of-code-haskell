@@ -182,8 +182,8 @@ bary coords = Just (avgX, avgY)
     avgX = fromIntegral (sum (map x coords)) / fromIntegral size
     avgY = fromIntegral (sum (map y coords)) / fromIntegral size
 
-isWaterCoord :: V.Vector (V.Vector Bool) -> Coord -> Bool
-isWaterCoord landMap c = isInBoard c && not (landMap V.! y c V.! x c)
+isWaterCoord :: [[Bool]] -> Coord -> Bool
+isWaterCoord landMap c = isInBoard c && not (landMap !! y c !! x c)
 
 getPowerToBuy :: State -> Power
 getPowerToBuy state = maybe PTorpedo fst3 found
@@ -221,7 +221,7 @@ getSilenceRange precomputed visited c@(Coord cX cY) = S.unions [inNorth, inSouth
     !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
     !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
     !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
-    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed V.! y coord V.! x coord))
+    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed !! y coord !! x coord))
     !visitedSet = S.fromList visited
 
 execOrder :: Precomputed -> [Coord] -> Order -> Coord -> S.Set Coord
@@ -242,7 +242,7 @@ toOpponentInput _ (Silence _)     = Silence Nothing
 toOpponentInput _ (Mine _)        = Mine Nothing
 toOpponentInput _ other           = other
 
-getWaterNeighbors :: V.Vector (V.Vector Bool) -> Coord -> [(Direction, Coord)]
+getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
 getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
   where
     computeNeighbor d = (d, addDirToCoord c d)
@@ -324,9 +324,11 @@ data Precomputed =
   Precomputed
     { coordsInRange :: !(Map.Map Coord (Map.Map Coord Int))
     , waterCoords   :: ![Coord]
-    , landMap       :: !(V.Vector (V.Vector Bool))
+    , landMap       :: ![[Bool]]
     }
-  deriving (Show)
+  deriving (Show, Generic)
+
+instance Binary Precomputed
 
 safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
@@ -514,7 +516,7 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
-timeoutSample1 = "x\156\173TY\174\195 \f\244\146\208\210\190\191\222\255<\189J\143Q\214\NUL\DC3 H\175\SYNV4\142\&3\RSc+D\193>$\148\SO\227\217\250\&1%\176s\158\250\216\201\206\&1M|\241+\153\215\205\212\206L\250\222\&4\204\186\162\148rX\155X%)\147*O\181HG\179\&6D\ESC\150\SUB\223\193\184\223\170L{\a\177\221\170s\167\&7\154\205\GS\216\DLE\t\211]\155G\200;*\198C)V\159\139\EM\141\247@1\175\&3\ENQSr{J\181T\139\246\130&\254\NUL?\SOH?\NUL[\192w\192\&7\192\ACK\240\SO\CAN\175\NAK\183P\NUL3\245\r\227<x\n`\ENQ\188\SOH\206z\223\&1t\184\&4\174\206\&9<\253f\241\198\NAKmz\141\206>\173\168\227\196\NUL\142)\STX\133\201\167PS\172v\233\179,\DC4\226\163\163\210\157\&0\239\&9\203x\228}V~AaQ\233\152\202p\164S>z\145\160\139w\184\162\242\144\&0f\147y3\194\211\187\132\193\245X\132/'\"\224T]\135\253\193$\212\167\148\221=\223\254\DEL\251\171\231\n#g(\150\CAN\221_\241z\193=W\246v?Vv\EOTl\244\139\200\191\130\253\v{\SYN\a\a"
+timeoutSample1 = "\"x\\156\\229TQ\\SYN\\195 \\b3b\\247\\183\\251\\USgo7\\219D\\129\\160v\\ETBX\\159\\212\\138\\SOHC\\240\\181\\DC4}\\222c*b\\ETX\\250VO\\211U\\213\\129\\249\\221&>|\\232>\\201\\EM\\DC4W\\t\\167\\223\\RS[l\\179L\\FSh\\216\\185\\b\\208\\200G\\b\\231w\\226\\\\lU\\DC2\\SOi\\220\\212\\193\\135\\SUB?\\SO\\172\\DC1K\\133\\177.\\166\\165 2\\240\\238c\\206\\128\\187\\SYN\\253$\\184\\128*D\\226B\\250\\221\\212\\129\\148\\161Y#\\169<\\230|\\210\\&9\\242=\\\"bSH\\139\\153\\243s\\153_c\\171\\147P\\235$w\\171@s9\\240U\\166\\187x[\\173\\161:\\164\\134[\\173\\135H\\135\\136Cd\\184\\220\\240\\175Y\\208!Y]\\196\\SOH\\166r\\243\\235\\b\\ETB^\\b:,\\245I\\SYNX\\172\\143\\&0k\\229\\225@Y8\\GSh\\159\\238\\206\\200\\134\\203QwEp\\176\\178\\147\\r\\198\\208\\US\\138\\225\\204n\\221\\190\\185\\178\\a>L\\185\\\"\\DC4\\170+\\229,\\197\\210=\\147b\\NAKu\\239\\160v\\209\\NAKk}e\\198?M\\151'=\\134\\184l\\254\\NUL\\GS\\247\\ACK\\139\""
 
 shortEncode :: Binary a => a -> String
 shortEncode e = show $ Zlib.compress $ encode e
@@ -522,44 +524,12 @@ shortEncode e = show $ Zlib.compress $ encode e
 shortDecode :: Binary a => String -> a
 shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
-gameLoop :: Precomputed -> State -> IO ()
-gameLoop !precomputed !oldState = do
-  input_line <- getLine
-  let input = words input_line
-  let x = read (input !! 0) :: Int
-  let y = read (input !! 1) :: Int
-  let myLife = read (input !! 2) :: Int
-  let oppLife = read (input !! 3) :: Int
-  let torpedocooldown = read (input !! 4) :: Int
-  let sonarcooldown = read (input !! 5) :: Int
-  let silencecooldown = read (input !! 6) :: Int
-  let minecooldown = read (input !! 7) :: Int
-  input_line <- getLine
-  let sonarresult = input_line :: String
-  opponentOrders <- getLine
-  startTime <- getCurrentTime
-  debug ("third line " ++ opponentOrders)
-  let afterParsingInputsState =
-        oldState
-          { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
-          , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
-          , torpedoCooldown = torpedocooldown
-          , sonarCooldown = sonarcooldown
-          , silenceCooldown = silencecooldown
-          , mineCooldown = minecooldown
-          , myLife = myLife
-          , oppLife = oppLife
-          }
-  debug $ shortEncode afterParsingInputsState
+findOrders precomputed afterParsingInputsState = do
   debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
-  spentTime1 <- getElapsedTime startTime
-  debug ("opp: " ++ spentTime1)
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
   debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
-  spentTime2 <- getElapsedTime startTime
-  debug ("me: " ++ spentTime2)
   let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
   let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
@@ -590,10 +560,40 @@ gameLoop !precomputed !oldState = do
                   hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
           [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound
-  spentTime <- getElapsedTime startTime
-  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates) ++ " " ++ spentTime)
-  let resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
+  let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates))
+  let !resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
+  return (out, resState)
+
+gameLoop :: Precomputed -> State -> IO ()
+gameLoop !precomputed !oldState = do
+  input_line <- getLine
+  let input = words input_line
+  let x = read (input !! 0) :: Int
+  let y = read (input !! 1) :: Int
+  let myLife = read (input !! 2) :: Int
+  let oppLife = read (input !! 3) :: Int
+  let torpedocooldown = read (input !! 4) :: Int
+  let sonarcooldown = read (input !! 5) :: Int
+  let silencecooldown = read (input !! 6) :: Int
+  let minecooldown = read (input !! 7) :: Int
+  input_line <- getLine
+  let sonarresult = input_line :: String
+  opponentOrders <- getLine
+  debug ("third line " ++ opponentOrders)
+  let afterParsingInputsState =
+        oldState
+          { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
+          , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
+          , torpedoCooldown = torpedocooldown
+          , sonarCooldown = sonarcooldown
+          , silenceCooldown = silencecooldown
+          , mineCooldown = minecooldown
+          , myLife = myLife
+          , oppLife = oppLife
+          }
+  debug $ show $ shortEncode afterParsingInputsState
+  (out, resState) <- findOrders precomputed afterParsingInputsState
   send out
   gameLoop precomputed resState
 
@@ -605,7 +605,7 @@ main = do
   let width = read (input !! 0) :: Int
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
-  !landMap <- fmap V.fromList (replicateM height $ V.fromList . map (== 'x') <$> getLine)
+  !landMap <- replicateM height $ map (== 'x') <$> getLine
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
