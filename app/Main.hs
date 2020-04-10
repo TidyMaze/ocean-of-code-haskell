@@ -6,7 +6,9 @@
 
 module Main where
 
+import           Control.Applicative    ((<$>))
 import           Control.Monad
+import           Data.Array.IO
 import           Data.Binary
 import qualified Data.ByteString.Lazy   as LBS
 import           Data.Foldable
@@ -21,6 +23,7 @@ import qualified Data.Vector            as V
 import           Debug.Trace            as T
 import           GHC.Generics           (Generic)
 import           System.IO
+import           System.IO.Unsafe
 
 import qualified Codec.Compression.Zlib as Zlib
 
@@ -254,29 +257,44 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
 comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
 comparingMaybe (Just _) Nothing = LT
 comparingMaybe Nothing (Just _) = GT
-comparingMaybe a b = compare a b
+comparingMaybe a b              = compare a b
+
+coordToIndex c = y c * 15 + x c
+
+indexToCoord i = Coord (i `mod` 15) (i `div` 15)
+
+convertKey (i, Just v) = Just (indexToCoord i, v)
+convertKey _           = Nothing
 
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
-bfs waterCoords getNeighbors c = aux initDist initQ
+bfs waterCoords getNeighbors c =
+  unsafePerformIO $ do
+    dist <- newArray (0, 15 * 15 - 1) Nothing :: IO (IOArray Int (Maybe Int))
+    bfsAux dist getNeighbors waterCoords
+
+bfsAux :: IOArray Int (Maybe Int) -> (Coord -> Maybe Int -> [Coord]) -> [Coord] -> IO (Map.Map Coord Int)
+bfsAux !dist _ [] = fmap (Map.fromList . mapMaybe convertKey) (getAssocs dist)
+bfsAux !dist !getNeighbors !q = do
+  let !fetchDists = map (\x -> (x, getDist x)) q
+  !withDists <- mapM sequence fetchDists
+  let !(u, du) = minimumBy cmpDist withDists
+  let !updatedQ = delete u q
+  !newValues <- catMaybes <$> mapM (findWhatToUpdate du) (filter (`elem` q) (getNeighbors u du))
+  !writes <- mapM_ (\(c, d) -> writeArray dist (coordToIndex c) (Just d)) newValues
+  bfsAux dist getNeighbors updatedQ
   where
-    initDist = Map.fromList [(c, 0)]
-    initQ = waterCoords
-    aux :: Map.Map Coord Int -> [Coord] -> Map.Map Coord Int
-    aux !dist [] = dist
-    aux !dist !q = aux newDist updatedQ
-      where
-        (u, du) = minimumBy cmpDist (map (\x -> (x, dist Map.!? x)) q)
-        cmpDist (c1, d1) (c2, d2) = comparingMaybe d1 d2
-        updatedQ = delete u q
-        newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u du)))
-        newDist = newValues `Map.union` dist
-        maybeAlt = fmap (+ 1) du :: Maybe Int
-        findWhatToUpdate v =
-          case (maybeAlt, dist Map.!? v) of
-            (Just alt, Just old) -> Just (v, min alt old)
-            (Nothing, Just old)  -> Nothing
-            (Just alt, Nothing)  -> Just (v, alt)
-            (Nothing, Nothing)   -> Nothing
+    getDist :: Coord -> IO (Maybe Int)
+    getDist c = readArray dist (coordToIndex c)
+    cmpDist (c1, d1) (c2, d2) = comparingMaybe d1 d2
+    findWhatToUpdate :: Maybe Int -> Coord -> IO (Maybe (Coord, Int))
+    findWhatToUpdate du v = do
+      maybeOld <- getDist v
+      return $!
+        case (fmap (+ 1) du, maybeOld) of
+          (Just alt, Just old) -> Just (v, min alt old)
+          (Nothing, Just old)  -> Nothing
+          (Just alt, Nothing)  -> Just (v, alt)
+          (Nothing, Nothing)   -> Nothing
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
