@@ -284,22 +284,22 @@ bfsAux !dist !getNeighbors !q = do
   !withDists <- mapM (sequence . (\x -> (x, getDist x))) q
   let !(u, du) = minimumBy cmpDist withDists
   let !updatedQ = delete u q
-  !newValues <- catMaybes <$> mapM (findWhatToUpdate du) (filter (`elem` q) (getNeighbors u du))
-  !writes <- mapM_ (\(c, d) -> writeArray dist (coordToIndex c) (Just d)) newValues
+  mapM_ (updateNeighbor du) (filter (`elem` q) (getNeighbors u du))
   bfsAux dist getNeighbors updatedQ
   where
     getDist :: Coord -> IO (Maybe Int)
     getDist c = readArray dist (coordToIndex c)
     cmpDist (c1, d1) (c2, d2) = comparingMaybe d1 d2
-    findWhatToUpdate :: Maybe Int -> Coord -> IO (Maybe (Coord, Int))
-    findWhatToUpdate du v = do
-      maybeOld <- getDist v
-      return $!
-        case (fmap (+ 1) du, maybeOld) of
-          (Just alt, Just old) -> Just (v, min alt old)
-          (Nothing, Just old) -> Nothing
-          (Just alt, Nothing) -> Just (v, alt)
-          (Nothing, Nothing) -> Nothing
+    updateNeighbor du n = do
+      dn <- getDist n
+      case (fmap (+ 1) du, dn) of
+        (Just alt, Just old) ->
+          if alt < old
+            then writeArray dist (coordToIndex n) (Just alt)
+            else pure ()
+        (Nothing, Just old) -> pure ()
+        (Just alt, Nothing) -> writeArray dist (coordToIndex n) (Just alt)
+        (Nothing, Nothing) -> pure ()
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
