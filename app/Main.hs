@@ -257,7 +257,8 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
 comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
 comparingMaybe (Just _) Nothing = LT
 comparingMaybe Nothing (Just _) = GT
-comparingMaybe a b              = compare a b
+comparingMaybe Nothing Nothing = EQ
+comparingMaybe (Just a) (Just b)              = compare a b
 {-# INLINE comparingMaybe #-}
 
 coordToIndex c = y c * 15 + x c
