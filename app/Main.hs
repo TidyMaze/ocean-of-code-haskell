@@ -206,7 +206,7 @@ findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precompute
 execOrderBulk :: Precomputed -> S.Set Coord -> S.Set Coord -> Order -> S.Set Coord
 execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinates S.empty candidates
   where
-    mergeCoordinates acc candidate = S.union acc (execOrder precomputed visited action candidate)
+    mergeCoordinates !acc !candidate = S.union acc $! execOrder precomputed visited action candidate
 
 singleInSetIf :: Bool -> Coord -> S.Set Coord
 singleInSetIf !cond coord =
