@@ -270,13 +270,13 @@ bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c =
   unsafePerformIO $ do
     dist <- newArray (0, 15 * 15 - 1) Nothing :: IO (IOArray Int (Maybe Int))
+    writeArray dist (coordToIndex c) (Just 0)
     bfsAux dist getNeighbors waterCoords
 
 bfsAux :: IOArray Int (Maybe Int) -> (Coord -> Maybe Int -> [Coord]) -> [Coord] -> IO (Map.Map Coord Int)
 bfsAux !dist _ [] = fmap (Map.fromList . mapMaybe convertKey) (getAssocs dist)
 bfsAux !dist !getNeighbors !q = do
-  let !fetchDists = map (\x -> (x, getDist x)) q
-  !withDists <- mapM sequence fetchDists
+  !withDists <- mapM (sequence . (\x -> (x, getDist x))) q
   let !(u, du) = minimumBy cmpDist withDists
   let !updatedQ = delete u q
   !newValues <- catMaybes <$> mapM (findWhatToUpdate du) (filter (`elem` q) (getNeighbors u du))
@@ -292,9 +292,9 @@ bfsAux !dist !getNeighbors !q = do
       return $!
         case (fmap (+ 1) du, maybeOld) of
           (Just alt, Just old) -> Just (v, min alt old)
-          (Nothing, Just old)  -> Nothing
-          (Just alt, Nothing)  -> Just (v, alt)
-          (Nothing, Nothing)   -> Nothing
+          (Nothing, Just old) -> Nothing
+          (Just alt, Nothing) -> Just (v, alt)
+          (Nothing, Nothing) -> Nothing
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
@@ -620,7 +620,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
-  debug $ show $ shortEncode afterParsingInputsState
+--  debug $ show $ shortEncode afterParsingInputsState
   (out, resState) <- findOrders precomputed afterParsingInputsState
   send out
   gameLoop precomputed resState
@@ -644,7 +644,7 @@ game = do
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
-  debug $ show $ shortEncode (waterCoords, landMap)
+--  debug $ show $ shortEncode (waterCoords, landMap)
   let !precomputed = buildPrecomputed waterCoords landMap
   let Coord startX startY = findStartCoord waterCoords width height
   endTime <- getCurrentTime
@@ -659,8 +659,11 @@ game = do
 --  debug (show precomputed)
 perf :: IO ()
 perf = do
+--  print precomputed
+--  print state
   res <- findOrders precomputed state
-  print $ show res
+--  print $ show res
+  print "done"
   return ()
   where
     precomputed = buildPrecomputed waterCoords landMap
