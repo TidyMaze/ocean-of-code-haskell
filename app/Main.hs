@@ -258,6 +258,7 @@ comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
 comparingMaybe (Just _) Nothing = LT
 comparingMaybe Nothing (Just _) = GT
 comparingMaybe a b              = compare a b
+{-# INLINE comparingMaybe #-}
 
 coordToIndex c = y c * 15 + x c
 {-# INLINE coordToIndex #-}
@@ -497,9 +498,7 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
     silencingOnce =
       if silenceCooldown state > 0
         then []
-        else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) silenceCoords
-      where
-        silenceCoords = S.toList $ getSilenceRange precomputed visitedSet curCoord
+        else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) $ S.toList $ getSilenceRange precomputed visitedSet curCoord
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
