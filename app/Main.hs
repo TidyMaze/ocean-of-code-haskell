@@ -252,8 +252,8 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
     unvisitedWater (d, dest) = dest `S.notMember` visited
 
 comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
-comparingMaybe (Just _) Nothing = GT
-comparingMaybe Nothing (Just _) = LT
+comparingMaybe (Just _) Nothing = LT
+comparingMaybe Nothing (Just _) = GT
 comparingMaybe a b = compare a b
 
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
@@ -438,10 +438,10 @@ getElapsedTime startTime = do
 
 data State =
   State
-    { opponentHistory :: {-# UNPACK #-}![Order]
-    , myCoordHistory  :: {-# UNPACK #-}![Coord]
-    , myHistory       :: {-# UNPACK #-}![Order]
-    , lastSonarAction :: {-# UNPACK #-}!(Maybe Order)
+    { opponentHistory :: ![Order]
+    , myCoordHistory  :: ![Coord]
+    , myHistory       :: ![Order]
+    , lastSonarAction :: !(Maybe Order)
     , torpedoCooldown :: {-# UNPACK #-}!Int
     , sonarCooldown   :: {-# UNPACK #-}!Int
     , silenceCooldown :: {-# UNPACK #-}!Int
