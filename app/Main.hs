@@ -251,6 +251,11 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
   where
     unvisitedWater (d, dest) = dest `S.notMember` visited
 
+comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
+comparingMaybe (Just _) Nothing = GT
+comparingMaybe Nothing (Just _) = LT
+comparingMaybe a b = compare a b
+
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c = aux initDist initQ
   where
@@ -260,8 +265,9 @@ bfs waterCoords getNeighbors c = aux initDist initQ
     aux !dist [] = dist
     aux !dist !q = aux newDist updatedQ
       where
-        (u:updatedQ) = sortOn (\x -> fromMaybe 1000 (dist Map.!? x)) q :: [Coord]
-        du = dist Map.!? u
+        (u, du) = minimumBy cmpDist (map (\x -> (x, dist Map.!? x)) q)
+        cmpDist (c1, d1) (c2, d2) = comparingMaybe d1 d2
+        updatedQ = delete u q
         newValues = Map.fromList (mapMaybe findWhatToUpdate (filter (`elem` q) (getNeighbors u du)))
         newDist = newValues `Map.union` dist
         maybeAlt = fmap (+ 1) du :: Maybe Int
