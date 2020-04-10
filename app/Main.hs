@@ -620,7 +620,7 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
---  debug $ show $ shortEncode afterParsingInputsState
+  debug $ show $ shortEncode afterParsingInputsState
   (out, resState) <- findOrders precomputed afterParsingInputsState
   send out
   gameLoop precomputed resState
@@ -644,7 +644,7 @@ game = do
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
---  debug $ show $ shortEncode (waterCoords, landMap)
+  debug $ show $ shortEncode (waterCoords, landMap)
   let !precomputed = buildPrecomputed waterCoords landMap
   let Coord startX startY = findStartCoord waterCoords width height
   endTime <- getCurrentTime
@@ -659,8 +659,8 @@ game = do
 --  debug (show precomputed)
 perf :: IO ()
 perf = do
---  print precomputed
---  print state
+  print precomputed
+  print state
   res <- findOrders precomputed state
 --  print $ show res
   print "done"
@@ -671,4 +671,4 @@ perf = do
     (waterCoords, landMap) = shortDecode timeoutSample1Pre :: ([Coord], [[Bool]])
 
 main :: IO ()
-main = perf
+main = game
