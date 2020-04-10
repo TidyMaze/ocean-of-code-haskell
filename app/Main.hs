@@ -185,8 +185,8 @@ bary coords = Just (avgX, avgY)
     avgX = fromIntegral (sum (map x coords)) / fromIntegral size
     avgY = fromIntegral (sum (map y coords)) / fromIntegral size
 
-isWaterCoord :: [[Bool]] -> Coord -> Bool
-isWaterCoord landMap c = isInBoard c && not (landMap !! y c !! x c)
+isWaterCoord :: V.Vector (V.Vector Bool) -> Coord -> Bool
+isWaterCoord landMap c = isInBoard c && not (landMap V.! y c V.! x c)
 
 getPowerToBuy :: State -> Power
 getPowerToBuy state = maybe PTorpedo fst3 found
@@ -224,7 +224,7 @@ getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.fromList $ foldl' uni
     !inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
     !inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
     !inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
-    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed !! y coord !! x coord))
+    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed V.! y coord V.! x coord))
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
 execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
@@ -244,7 +244,7 @@ toOpponentInput _ (Silence _)     = Silence Nothing
 toOpponentInput _ (Mine _)        = Mine Nothing
 toOpponentInput _ other           = other
 
-getWaterNeighbors :: [[Bool]] -> Coord -> [(Direction, Coord)]
+getWaterNeighbors :: V.Vector (V.Vector Bool) -> Coord -> [(Direction, Coord)]
 getWaterNeighbors landMap c = filter (\(d, dest) -> isWaterCoord landMap dest) neighbors
   where
     computeNeighbor d = (d, addDirToCoord c d)
@@ -351,11 +351,11 @@ data Precomputed =
   Precomputed
     { coordsInRange :: !(Map.Map Coord (Map.Map Coord Int))
     , waterCoords   :: ![Coord]
-    , landMap       :: ![[Bool]]
+    , landMap       :: !(V.Vector (V.Vector Bool))
     }
   deriving (Show, Generic)
 
-instance Binary Precomputed
+--instance Binary Precomputed
 
 safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
@@ -642,7 +642,7 @@ game = do
   let width = read (input !! 0) :: Int
   let height = read (input !! 1) :: Int
   let myid = read (input !! 2) :: Int
-  !landMap <- replicateM height $ map (== 'x') <$> getLine
+  !landMap <- fmap (V.fromList . map V.fromList) $ replicateM height $ map (== 'x') <$> getLine
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
@@ -668,7 +668,7 @@ perf = do
   print "done"
   return ()
   where
-    precomputed = buildPrecomputed waterCoords landMap
+    precomputed = buildPrecomputed waterCoords $ V.fromList $ map V.fromList landMap
     state = shortDecode timeoutSample1
     (waterCoords, landMap) = shortDecode timeoutSample1Pre :: ([Coord], [[Bool]])
 
