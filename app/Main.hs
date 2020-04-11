@@ -267,48 +267,42 @@ coordToIndex c = y c * 15 + x c
 indexToCoord i = Coord (i `mod` 15) (i `div` 15)
 
 {-# INLINE indexToCoord #-}
-convertKey (i, Just v) = Just (indexToCoord i, v)
-convertKey _           = Nothing
+convertKey (i, v) | v == maxBound = Nothing
+convertKey (i, v) = Just (indexToCoord i, v)
 
 {-# INLINE convertKey #-}
-bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
+bfs :: [Coord] -> (Coord -> Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c =
   unsafePerformIO $ do
-    dist <- newArray (0, 15 * 15 - 1) Nothing :: IO (IOArray Int (Maybe Int))
-    writeArray dist (coordToIndex c) (Just 0)
-    bfsAux dist getNeighbors waterCoords
+    dist <- newArray (0, 15 * 15 - 1) maxBound :: IO (IOArray Int Int)
+    writeArray dist (coordToIndex c) 0
+    bfsAux dist getNeighbors (S.singleton (0, c))
 
-bfsAux :: IOArray Int (Maybe Int) -> (Coord -> Maybe Int -> [Coord]) -> [Coord] -> IO (Map.Map Coord Int)
-bfsAux !dist _ [] = fmap (Map.fromList . mapMaybe convertKey) (getAssocs dist)
-bfsAux !dist !getNeighbors !q = do
-  !withDists <- mapM (sequence . (\x -> (x, getDist x))) q
-  let !(u, du) = minimumBy cmpDist withDists
-  let !updatedQ = delete u q
-  mapM_ (updateNeighbor du) (filter (`elem` q) (getNeighbors u du))
-  bfsAux dist getNeighbors updatedQ
-  where
-    getDist :: Coord -> IO (Maybe Int)
-    getDist c = readArray dist (coordToIndex c)
-    cmpDist (c1, d1) (c2, d2) = comparingMaybe d1 d2
-    updateNeighbor du n = do
-      dn <- getDist n
-      case (fmap (+ 1) du, dn) of
-        (Just alt, Just old) ->
-          if alt < old
-            then writeArray dist (coordToIndex n) (Just alt)
-            else pure ()
-        (Nothing, Just old) -> pure ()
-        (Just alt, Nothing) -> writeArray dist (coordToIndex n) (Just alt)
-        (Nothing, Nothing) -> pure ()
+bfsAux :: IOArray Int Int -> (Coord -> Int -> [Coord]) -> S.Set (Int, Coord) -> IO (Map.Map Coord Int)
+bfsAux !dist !getNeighbors !q =
+  case S.minView q of
+    Nothing -> fmap (Map.fromList . mapMaybe convertKey) (getAssocs dist)
+    Just ((du, u), q') -> do
+      !updatedQ <- foldM (updateNeighbor du) q' (getNeighbors u du)
+      bfsAux dist getNeighbors updatedQ
+      where getDist :: Coord -> IO Int
+            getDist c = readArray dist (coordToIndex c)
+            updateNeighbor :: Int -> S.Set (Int, Coord) -> Coord -> IO (S.Set (Int, Coord))
+            updateNeighbor du vq n = do
+              old <- getDist n
+              let alt = du + 1
+              if alt < old
+                then do
+                  let vq' = S.delete (old, n) vq
+                  writeArray dist (coordToIndex n) alt
+                  return $ S.insert (alt, n) vq'
+                else pure vq
 
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
   where
-    neighborsWithDist coord Nothing = []
-    neighborsWithDist coord (Just dist)
-      | dist >= 4 = []
-    neighborsWithDist coord (Just dist)
-      | dist < 4 = getNeighbors coord
+    neighborsWithDist coord dist | dist >= 4 = []
+    neighborsWithDist coord dist | dist < 4 = getNeighbors coord
 
 findMove :: Precomputed -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
 findMove precomputed visited target = listToMaybe (sortOn (\(dir, d) -> criteria target d) neighbors)
