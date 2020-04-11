@@ -24,7 +24,6 @@ import           Debug.Trace            as T
 import           GHC.Generics           (Generic)
 import           System.IO
 import           System.IO.Unsafe
-import qualified Data.Sequence as DS
 
 import qualified Codec.Compression.Zlib as Zlib
 
@@ -209,28 +208,25 @@ execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinat
   where
     mergeCoordinates !acc !candidate = S.union acc $! S.fromList . toList $ execOrder precomputed visited action candidate
 
-singleInSeqIf :: Bool -> Coord -> DS.Seq Coord
+singleInSeqIf :: Bool -> Coord -> S.Set Coord
 singleInSeqIf !cond coord =
   if cond
-    then DS.singleton coord
-    else DS.empty
+    then S.singleton coord
+    else S.empty
 
 enumerate = zip [0 ..]
-{-# INLINE enumerate #-}
 
-getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> DS.Seq (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = res
+{-# INLINE enumerate #-}
+getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
-    res = foldl' pick DS.empty allGenerators
-    pick s l = s DS.>< DS.fromList (takeWhile valid l)
-    allGenerators = DS.fromList [inNorth, inSouth, inWest, inEast]
-    inNorth = map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    inSouth = map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    inWest = map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    inEast = map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
     valid (coord, dir, index) = coord == c || (index <= 4 && not (landMap precomputed V.! y coord V.! x coord) && coord `S.notMember` visitedSet)
 
-execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> DS.Seq Coord
+execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
 execOrder precomputed _ (Move direction _) c = singleInSeqIf (isWaterCoord (landMap precomputed) newC) newC
   where
     newC = addDirToCoord c direction
@@ -238,8 +234,8 @@ execOrder precomputed _ (Torpedo t) c = singleInSeqIf (inTorpedoRange precompute
 execOrder _ _ (Surface (Just sector)) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector True) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector False) c = singleInSeqIf (sector /= sectorFromCoord c) c
-execOrder precomputed visited (Silence _) c = DS.mapWithIndex (\_ (c, _, _) -> c) (getSilenceRange precomputed visited c)
-execOrder _ _ otherOrder state = DS.singleton state
+execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (getSilenceRange precomputed visited c)
+execOrder _ _ otherOrder state = S.singleton state
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -271,7 +267,8 @@ coordToIndex c = y c * 15 + x c
 indexToCoord i = Coord (i `mod` 15) (i `div` 15)
 
 {-# INLINE indexToCoord #-}
-convertKey (i, v) | v == maxBound = Nothing
+convertKey (i, v)
+  | v == maxBound = Nothing
 convertKey (i, v) = Just (indexToCoord i, v)
 
 {-# INLINE convertKey #-}
@@ -305,8 +302,10 @@ bfsAux !dist !getNeighbors !q =
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
   where
-    neighborsWithDist coord dist | dist >= 4 = []
-    neighborsWithDist coord dist | dist < 4 = getNeighbors coord
+    neighborsWithDist coord dist
+      | dist >= 4 = []
+    neighborsWithDist coord dist
+      | dist < 4 = getNeighbors coord
 
 findMove :: Precomputed -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
 findMove precomputed visited target = listToMaybe (sortOn (\(dir, d) -> criteria target d) neighbors)
@@ -540,10 +539,11 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
-timeoutSample1 = "\"x\\156\\197\\151\\139V\\195 \\f@y\\173\\GS\\175\\253\\255\\US\\204\\239\\240\\203\\212vi\\225\\142X\\173G\\229\\148\\229\\\\\\154&@ 0c\\150\\242j\\156\\233\\158\\166\\132\\229\\215\\ESCc\\229\\241\\USm\\190yD\\207\\179yk\\179\\139\\213\\229\\&7\\244\\158F\\246\\252\\163\\205\\SUB\\244+\\240\\195\\147\\223\\246m\\150\\223\\142\\236\\181\\227P\\236\\217\\US|{\\194\\222\\DEL\\249X\\203K\\183<\\186e0\\148\\ETB\\240\\132v2%\\237\\136\\191I\\225#?\\148\\&3\\244\\132\\ETX\\216\\131\\157\\194W\\232\\147#\\244\\201\\t\\250\\228\\f}r\\129>\\185B_\\216*\\\\\\192\\EM\\156\\192\\DC1,\\227\\&7\\nGp\\STXgp\\SOHW\\240\\r\\254\\133\\GS\\216\\131\\131\\194\\NAK\\\\\\192\\EM,\\253\\191(\\156\\193\\ENQ\\\\\\193\\210\\159I\\225\\n.\\224\\fN\\224\\b\\150\\248\\204\\nGp\\STXgp\\SOHW\\176\\140\\231\\170p\\ENQ\\ETBp\\ACK'p\\EOTk\\237Q\\145\\t\\156\\193\\ENQ\\\\\\193\\&2\\158\\164p\\ENQ\\ETBp\\ACKS\\178\\159\\156\\a-n\\140\\187\\240\\ENQ\\FS\\192Z\\RSK\\n3\\143\\GS\\237\\DC3m\\221r]1\\238\\140\\v\\231-+\\178\\128+\\248\\ACK=r\\ENQS\\210\\SI\\227\\204u\\196u\\206}\\196}\\174\\229\\NAK\\230%a\\237\\FS)\\n\\243\\FS\\209\\242\\\"\\243\\SYN\\243\\DC2\\247=\\247\\&5\\247\\r\\247\\ENQ\\227\\194y\\175\\138\\188\\GSH\\234\\&1\\206\\\\\\a\\220\\199\\220\\231\\204c\\204s\\204\\227\\204\\243<\\135xn\\DEL\\247\\FS\\151\\194s\\147\\231\\234\\217s]xV\\152\\247$\\222\\163x\\207\\226=\\140\\247\\&4\\145\\247\\213\\213V\\221V\\253^\\131\\NAKw\\182{e\\247\\218\\170\\216\\254\\213\\174bU\\NAK\\183:\\r\\162\\241p4\\168Tq\\205k7v\\228\\DEL\\171/\\239\\170VSs\\159;{\\154\\190q\\DEL\\154\\209\\157t\\244'V\\156}\\142\\248\\&27nSs\\136\\149b\\233 V\\178\\242\\218\\200\\175\\220\\&93c\\181v\\145\\182\\150\\186\\254\\236V\\190\\&2\\248\\190H\\131\\246\\175jz\\ETX2\\235\\DC1\\141\""
+timeoutSample1 =
+  "\"x\\156\\197\\151\\139V\\195 \\f@y\\173\\GS\\175\\253\\255\\US\\204\\239\\240\\203\\212vi\\225\\142X\\173G\\229\\148\\229\\\\\\154&@ 0c\\150\\242j\\156\\233\\158\\166\\132\\229\\215\\ESCc\\229\\241\\USm\\190yD\\207\\179yk\\179\\139\\213\\229\\&7\\244\\158F\\246\\252\\163\\205\\SUB\\244+\\240\\195\\147\\223\\246m\\150\\223\\142\\236\\181\\227P\\236\\217\\US|{\\194\\222\\DEL\\249X\\203K\\183<\\186e0\\148\\ETB\\240\\132v2%\\237\\136\\191I\\225#?\\148\\&3\\244\\132\\ETX\\216\\131\\157\\194W\\232\\147#\\244\\201\\t\\250\\228\\f}r\\129>\\185B_\\216*\\\\\\192\\EM\\156\\192\\DC1,\\227\\&7\\nGp\\STXgp\\SOHW\\240\\r\\254\\133\\GS\\216\\131\\131\\194\\NAK\\\\\\192\\EM,\\253\\191(\\156\\193\\ENQ\\\\\\193\\210\\159I\\225\\n.\\224\\fN\\224\\b\\150\\248\\204\\nGp\\STXgp\\SOHW\\176\\140\\231\\170p\\ENQ\\ETBp\\ACK'p\\EOTk\\237Q\\145\\t\\156\\193\\ENQ\\\\\\193\\&2\\158\\164p\\ENQ\\ETBp\\ACKS\\178\\159\\156\\a-n\\140\\187\\240\\ENQ\\FS\\192Z\\RSK\\n3\\143\\GS\\237\\DC3m\\221r]1\\238\\140\\v\\231-+\\178\\128+\\248\\ACK=r\\ENQS\\210\\SI\\227\\204u\\196u\\206}\\196}\\174\\229\\NAK\\230%a\\237\\FS)\\n\\243\\FS\\209\\242\\\"\\243\\SYN\\243\\DC2\\247=\\247\\&5\\247\\r\\247\\ENQ\\227\\194y\\175\\138\\188\\GSH\\234\\&1\\206\\\\\\a\\220\\199\\220\\231\\204c\\204s\\204\\227\\204\\243<\\135xn\\DEL\\247\\FS\\151\\194s\\147\\231\\234\\217s]xV\\152\\247$\\222\\163x\\207\\226=\\140\\247\\&4\\145\\247\\213\\213V\\221V\\253^\\131\\NAKw\\182{e\\247\\218\\170\\216\\254\\213\\174bU\\NAK\\183:\\r\\162\\241p4\\168Tq\\205k7v\\228\\DEL\\171/\\239\\170VSs\\159;{\\154\\190q\\DEL\\154\\209\\157t\\244'V\\156}\\142\\248\\&27nSs\\136\\149b\\233 V\\178\\242\\218\\200\\175\\220\\&93c\\181v\\145\\182\\150\\186\\254\\236V\\190\\&2\\248\\190H\\131\\246\\175jz\\ETX2\\235\\DC1\\141\""
 
-timeoutSample1Pre = "\"x\\156\\165\\215mN\\132\\&0\\DLE\\NUL\\208\\178P\\160_\\236\\253o\\228\\177\\212\\r\\DC3\\205SV\\141\\252p\\242\\170\\t\\GS\\218\\206\\212\\148\\RS\\207Kz\\254L\\248\\134g\\188\\224\\140w\\\\p\\197\\rw<\\240qF\\231=]\\196\\ESC\\158\\241\\130\\&3\\222q\\193\\NAK7\\220\\241\\192\\145\\143\\223=<\\227\\ENQg\\188\\226\\r\\239\\184\\224\\138\\ESC\\238x\\224\\200g\\190\\136\\v\\206x\\197\\ESC\\222q\\193\\NAK7\\220\\241\\192\\&1\\DEL\\231\\185\\\\\\196\\140W\\188\\225\\138\\ESC\\238x\\224\\152\\159\\223\\205y\\228\\139\\184\\226\\rW\\220p\\199\\ETX\\199\\252\\226=\\DC3v\\159\\186\\238~G\\231m\\220\\240\\142\\v\\174\\184\\225\\142\\a\\142\\252\\226\\189\\tO\\216s\\232\\190v\\159\\184.\\230i\\220q\\193\\NAK7\\220\\241\\192\\145\\175u\\208:\\226\\185\\f/8c\\215\\205\\188\\140\\ENQW\\220p\\199\\ETXG~\\214u\\235\\162u&\\188\\224\\140\\221\\135\\174\\147y\\EM+n\\184\\227\\129#?\\251\\148u\\222\\186i\\157\\178.x\\142\\220g\\174\\139y\\212\\139\\216p\\199\\ETXG~\\222#\\236\\195\\246\\&1\\251\\130u\\216\\186g\\157\\240\\FS\\185\\239\\\\'\\243j\\ETB\\177\\227\\129\\SI\\254.a\\239\\GS\\246m\\251\\160}\\199:o]\\180nx\\206\\220\\151\\174\\163y\\SUB\\a>\\CANO\\216{\\149\\247\\DC2\\251\\188}\\213>f\\221\\183.ZG<w\\238S\\215\\209<\\141\\a1\\225\\171{\\138\\247\\STX\\251\\176}\\203\\186n\\GS\\180nx\\206\\220\\135\\174\\147y\\220?\\197\\233\\237y\\255\\145>\\158\\251\\&9z>\\211\\143\\195\\223=\\DEL\\FS\\158\\252\\US\\226\\233\\240\\227\\253_~\\245l\\248\\223\\DC3\\252\\221\\240+\\CAN\\192\\r\\\\\""
-
+timeoutSample1Pre =
+  "\"x\\156\\165\\215mN\\132\\&0\\DLE\\NUL\\208\\178P\\160_\\236\\253o\\228\\177\\212\\r\\DC3\\205SV\\141\\252p\\242\\170\\t\\GS\\218\\206\\212\\148\\RS\\207Kz\\254L\\248\\134g\\188\\224\\140w\\\\p\\197\\rw<\\240qF\\231=]\\196\\ESC\\158\\241\\130\\&3\\222q\\193\\NAK7\\220\\241\\192\\145\\143\\223=<\\227\\ENQg\\188\\226\\r\\239\\184\\224\\138\\ESC\\238x\\224\\200g\\190\\136\\v\\206x\\197\\ESC\\222q\\193\\NAK7\\220\\241\\192\\&1\\DEL\\231\\185\\\\\\196\\140W\\188\\225\\138\\ESC\\238x\\224\\152\\159\\223\\205y\\228\\139\\184\\226\\rW\\220p\\199\\ETX\\199\\252\\226=\\DC3v\\159\\186\\238~G\\231m\\220\\240\\142\\v\\174\\184\\225\\142\\a\\142\\252\\226\\189\\tO\\216s\\232\\190v\\159\\184.\\230i\\220q\\193\\NAK7\\220\\241\\192\\145\\175u\\208:\\226\\185\\f/8c\\215\\205\\188\\140\\ENQW\\220p\\199\\ETXG~\\214u\\235\\162u&\\188\\224\\140\\221\\135\\174\\147y\\EM+n\\184\\227\\129#?\\251\\148u\\222\\186i\\157\\178.x\\142\\220g\\174\\139y\\212\\139\\216p\\199\\ETXG~\\222#\\236\\195\\246\\&1\\251\\130u\\216\\186g\\157\\240\\FS\\185\\239\\\\'\\243j\\ETB\\177\\227\\129\\SI\\254.a\\239\\GS\\246m\\251\\160}\\199:o]\\180nx\\206\\220\\151\\174\\163y\\SUB\\a>\\CANO\\216{\\149\\247\\DC2\\251\\188}\\213>f\\221\\183.ZG<w\\238S\\215\\209<\\141\\a1\\225\\171{\\138\\247\\STX\\251\\176}\\203\\186n\\GS\\180nx\\206\\220\\135\\174\\147y\\220?\\197\\233\\237y\\255\\145>\\158\\251\\&9z>\\211\\143\\195\\223=\\DEL\\FS\\158\\252\\US\\226\\233\\240\\227\\253_~\\245l\\248\\223\\DC3\\252\\221\\240+\\CAN\\192\\r\\\\\""
 
 shortEncode :: Binary a => a -> String
 shortEncode e = show $ Zlib.compress $ encode e
@@ -552,17 +552,11 @@ shortDecode :: Binary a => String -> a
 shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
 findOrders precomputed afterParsingInputsState = do
---  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
---  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
---  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
   let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
   let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
---  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
---  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
---  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         findAttackSequence
@@ -592,6 +586,12 @@ findOrders precomputed afterParsingInputsState = do
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   return (out, resState)
 
+--  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
+--  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
+--  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
+--  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
+--  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
+--  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
   input_line <- getLine
@@ -607,7 +607,6 @@ gameLoop !precomputed !oldState = do
   input_line <- getLine
   let sonarresult = input_line :: String
   opponentOrders <- getLine
---  debug ("third line " ++ opponentOrders)
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
@@ -624,6 +623,7 @@ gameLoop !precomputed !oldState = do
   send out
   gameLoop precomputed resState
 
+--  debug ("third line " ++ opponentOrders)
 buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
   where
     mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
@@ -631,10 +631,9 @@ buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList
       where
         fn = map snd . getWaterNeighbors landMap
 
-instance Binary a => Binary (V.Vector a)
-  where
-    put v = put $ V.toList v
-    get = fmap V.fromList get
+instance Binary a => Binary (V.Vector a) where
+  put v = put $ V.toList v
+  get = fmap V.fromList get
 
 game :: IO ()
 game = do
@@ -659,8 +658,8 @@ game = do
         State
           {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
   gameLoop precomputed state
---  debug (show precomputed)
 
+--  debug (show precomputed)
 perf :: IO ()
 perf = do
   (orders, _) <- findOrders precomputed state
