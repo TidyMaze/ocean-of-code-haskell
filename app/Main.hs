@@ -218,12 +218,12 @@ singleInSetIf !cond coord =
 enumerate = zip [0 ..]
 
 getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.fromList $ foldl' union [] [inNorth, inSouth, inWest, inEast]
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
-    !inNorth = takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    !inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    !inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    !inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
     valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed V.! y coord V.! x coord))
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
@@ -255,22 +255,22 @@ getUnvisitedWaterNeighborsDir landMap c visited = filter unvisitedWater (getWate
     unvisitedWater (d, dest) = dest `S.notMember` visited
 
 comparingMaybe :: Ord a => Maybe a -> Maybe a -> Ordering
-comparingMaybe (Just _) Nothing = LT
-comparingMaybe Nothing (Just _) = GT
-comparingMaybe Nothing Nothing = EQ
-comparingMaybe (Just a) (Just b)              = compare a b
+comparingMaybe (Just _) Nothing  = LT
+comparingMaybe Nothing (Just _)  = GT
+comparingMaybe Nothing Nothing   = EQ
+comparingMaybe (Just a) (Just b) = compare a b
+
 {-# INLINE comparingMaybe #-}
-
 coordToIndex c = y c * 15 + x c
+
 {-# INLINE coordToIndex #-}
-
 indexToCoord i = Coord (i `mod` 15) (i `div` 15)
-{-# INLINE indexToCoord #-}
 
+{-# INLINE indexToCoord #-}
 convertKey (i, Just v) = Just (indexToCoord i, v)
 convertKey _           = Nothing
-{-# INLINE convertKey #-}
 
+{-# INLINE convertKey #-}
 bfs :: [Coord] -> (Coord -> Maybe Int -> [Coord]) -> Coord -> Map.Map Coord Int
 bfs waterCoords getNeighbors c =
   unsafePerformIO $ do
@@ -356,7 +356,6 @@ data Precomputed =
   deriving (Show, Generic)
 
 --instance Binary Precomputed
-
 safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
 safeHead msg (x:xs) = x
@@ -543,10 +542,11 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
-timeoutSample1 = "\"x\\156\\133\\148a\\146\\131 \\fF\\ETX\\168`\\NAK\\SO\\181\\251\\187\\247\\191N\\NAK\\t\\234\\171\\217\\205\\DLE3\\143\\134|I\\EM\\NAK\\169\\246\\SYN/\\251r\\\"A\\215\\197\\134\\250\\f\\151U\\DC3\\a\\205;6\\\\+\\161\\219\\163k\\199\\147\\192\\170\\216\\160\\138\\253\\169\\219r\\151\\147\\166U5{\\209\\169\\&5\\219+^\\210\\190Vm)\\156G\\189\\158\\216\\236\\183\\197\\185\\197\\ENQ\\188\\130\\&3\\184\\180\\248\\&28\\131W\\240\\STXf\\156\\193\\t\\FSQ\\135\\156\\192\\156\\147}0\\174\\224\\f.\\200#g\\176\\181\\159\\141X\\254\\137\\204c\\USV\\223\\156\\139\\247\\194{WN\\224\\b\\158\\192#\\244\\201\\DC38\\130U\\175\\CAN\\FS\\193\\DC3x\\EOT\\235\\v\\150\\r\\SO`\\SI\\214\\183\\168\\CAN\\172\\150\\193+x1\\216\\129=X\\251{\\EM\\172\\243\\204\\224d\\176\\254?\\209\\224\\t\\172\\241\\231hu\\255\\n\\213\\232\\183x\\184\\156q\\208i\\234w\\232L\\217\\221m\\238\\247\\DC4\\215S\\\\\\219\\214\\159\\155_S|\\DC3P\\247=\\205=UrwA\\166\\248\\239J\\DEL\\137\\201\\243T\\254\\222\\238\\147\\DLE\\197\\170\\223-\\CAN\\172\\ETB0~\\NUL\\213A\\a\\183\""
+timeoutSample1 =
+  "\"x\\156\\133\\148a\\146\\131 \\fF\\ETX\\168`\\NAK\\SO\\181\\251\\187\\247\\191N\\NAK\\t\\234\\171\\217\\205\\DLE3\\143\\134|I\\EM\\NAK\\169\\246\\SYN/\\251r\\\"A\\215\\197\\134\\250\\f\\151U\\DC3\\a\\205;6\\\\+\\161\\219\\163k\\199\\147\\192\\170\\216\\160\\138\\253\\169\\219r\\151\\147\\166U5{\\209\\169\\&5\\219+^\\210\\190Vm)\\156G\\189\\158\\216\\236\\183\\197\\185\\197\\ENQ\\188\\130\\&3\\184\\180\\248\\&28\\131W\\240\\STXf\\156\\193\\t\\FSQ\\135\\156\\192\\156\\147}0\\174\\224\\f.\\200#g\\176\\181\\159\\141X\\254\\137\\204c\\USV\\223\\156\\139\\247\\194{WN\\224\\b\\158\\192#\\244\\201\\DC38\\130U\\175\\CAN\\FS\\193\\DC3x\\EOT\\235\\v\\150\\r\\SO`\\SI\\214\\183\\168\\CAN\\172\\150\\193+x1\\216\\129=X\\251{\\EM\\172\\243\\204\\224d\\176\\254?\\209\\224\\t\\172\\241\\231hu\\255\\n\\213\\232\\183x\\184\\156q\\208i\\234w\\232L\\217\\221m\\238\\247\\DC4\\215S\\\\\\219\\214\\159\\155_S|\\DC3P\\247=\\205=UrwA\\166\\248\\239J\\DEL\\137\\201\\243T\\254\\222\\238\\147\\DLE\\197\\170\\223-\\CAN\\172\\ETB0~\\NUL\\213A\\a\\183\""
 
-timeoutSample1Pre = "\"x\\156\\157\\214Yr\\131\\&0\\f\\NULP\\155\\GS/\\228\\254\\199\\233\\205:]\\212\\194K\\201G\\249\\209<'\\ETX2\\216\\146S\\250\\188\\222\\210\\235+\\227\\SOH\\143x\\194\\&3\\222\\240\\142\\v\\174\\184\\225\\142\\143\\239h\\222\\249&\\SOx\\196\\DC3\\158\\241\\134w\\\\p\\197\\rw\\FS\\243\\&1\\207\\225&\\142x\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\223\\171y\\142\\&7q\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\215\\181\\235\\\"<\\224\\DC1\\ESCg\\188\\224\\NAK\\ETB\\\\q\\195\\GS\\199|\\220\\151\\174\\235\\240\\128G\\236<\\140\\v^q\\193\\NAK7\\220q\\204'\\158\\147p\\198\\238\\v\\243\\&4\\174x\\195;.\\184\\226\\134;\\142\\249\\196s\\DC3\\206\\216}\\237{v\\RS\\198\\r\\239\\184\\224\\138\\ESC\\238\\&8\\230c\\221\\183nZ\\135\\220\\215\\225\\t\\207\\216\\239\\228<\\141;.\\184\\226\\134;\\142\\249\\218\\a\\172\\171\\214\\169\\240\\132\\253.\\230m,\\184\\226\\134;\\142\\252\\237[\\246\\SOH\\235\\170u\\201u\\227{5\\207r\\DC3+n\\184\\227\\200\\223s\\131}\\215>f_\\176\\174\\186\\238]\\ETB\\190g\\243\\174\\&7\\177\\225\\142\\SI\\254\\151\\176\\231\\b\\251\\178}\\206>a\\157\\181N\\185\\207\\221\\a\\174+\\191\\147\\243\\&4v|0\\158\\176\\231$\\207\\GS\\246q\\251\\160}\\196:l\\GSs\\159\\251\\157\\156\\135\\241 &\\236\\&9\\239\\174O\\219\\231\\236\\DC3\\214Y\\247\\129\\235\\200\\247l\\158\\143\\223\\152\\191r\\204\\231#\\245#\\253y1\\156\\175\\195q\\135\\211\\240\\199\\208\\229\\198<\\242\\244\\211\\227\\a7\\195\\207\\153<\\255t\\GS\\206$\\248z\\248z\\147\\DEL\\SI\\191\\ETX\\240\\182\\f\\154\""
-
+timeoutSample1Pre =
+  "\"x\\156\\157\\214Yr\\131\\&0\\f\\NULP\\155\\GS/\\228\\254\\199\\233\\205:]\\212\\194K\\201G\\249\\209<'\\ETX2\\216\\146S\\250\\188\\222\\210\\235+\\227\\SOH\\143x\\194\\&3\\222\\240\\142\\v\\174\\184\\225\\142\\143\\239h\\222\\249&\\SOx\\196\\DC3\\158\\241\\134w\\\\p\\197\\rw\\FS\\243\\&1\\207\\225&\\142x\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\223\\171y\\142\\&7q\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\215\\181\\235\\\"<\\224\\DC1\\ESCg\\188\\224\\NAK\\ETB\\\\q\\195\\GS\\199|\\220\\151\\174\\235\\240\\128G\\236<\\140\\v^q\\193\\NAK7\\220q\\204'\\158\\147p\\198\\238\\v\\243\\&4\\174x\\195;.\\184\\226\\134;\\142\\249\\196s\\DC3\\206\\216}\\237{v\\RS\\198\\r\\239\\184\\224\\138\\ESC\\238\\&8\\230c\\221\\183nZ\\135\\220\\215\\225\\t\\207\\216\\239\\228<\\141;.\\184\\226\\134;\\142\\249\\218\\a\\172\\171\\214\\169\\240\\132\\253.\\230m,\\184\\226\\134;\\142\\252\\237[\\246\\SOH\\235\\170u\\201u\\227{5\\207r\\DC3+n\\184\\227\\200\\223s\\131}\\215>f_\\176\\174\\186\\238]\\ETB\\190g\\243\\174\\&7\\177\\225\\142\\SI\\254\\151\\176\\231\\b\\251\\178}\\206>a\\157\\181N\\185\\207\\221\\a\\174+\\191\\147\\243\\&4v|0\\158\\176\\231$\\207\\GS\\246q\\251\\160}\\196:l\\GSs\\159\\251\\157\\156\\135\\241 &\\236\\&9\\239\\174O\\219\\231\\236\\DC3\\214Y\\247\\129\\235\\200\\247l\\158\\143\\223\\152\\191r\\204\\231#\\245#\\253y1\\156\\175\\195q\\135\\211\\240\\199\\208\\229\\198<\\242\\244\\211\\227\\a7\\195\\207\\153<\\255t\\GS\\206$\\248z\\248z\\147\\DEL\\SI\\191\\ETX\\240\\182\\f\\154\""
 
 shortEncode :: Binary a => a -> String
 shortEncode e = show $ Zlib.compress $ encode e
@@ -622,11 +622,11 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
---  debug $ show $ shortEncode afterParsingInputsState
   (out, resState) <- findOrders precomputed afterParsingInputsState
   send out
   gameLoop precomputed resState
 
+--  debug $ show $ shortEncode afterParsingInputsState
 buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
   where
     mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
@@ -646,7 +646,6 @@ game = do
   startTime <- getCurrentTime
   let allCoords = [Coord x y | x <- [0 .. 14], y <- [0 .. 14]]
   let !waterCoords = filter (isWaterCoord landMap) allCoords :: [Coord]
---  debug $ show $ shortEncode (waterCoords, landMap)
   let !precomputed = buildPrecomputed waterCoords landMap
   let Coord startX startY = findStartCoord waterCoords width height
   endTime <- getCurrentTime
@@ -658,11 +657,10 @@ game = do
           {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
   gameLoop precomputed state
 
+--  debug $ show $ shortEncode (waterCoords, landMap)
 --  debug (show precomputed)
 perf :: IO ()
 perf = do
---  print precomputed
---  print state
   (orders, _) <- findOrders precomputed state
   print $ orders
   print "done"
@@ -672,5 +670,7 @@ perf = do
     state = shortDecode timeoutSample1
     (waterCoords, landMap) = shortDecode timeoutSample1Pre :: ([Coord], [[Bool]])
 
+--  print precomputed
+--  print state
 main :: IO ()
 main = perf
