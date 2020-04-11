@@ -24,6 +24,7 @@ import           Debug.Trace            as T
 import           GHC.Generics           (Generic)
 import           System.IO
 import           System.IO.Unsafe
+import qualified Data.Sequence as DS
 
 import qualified Codec.Compression.Zlib as Zlib
 
@@ -206,36 +207,39 @@ findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precompute
 execOrderBulk :: Precomputed -> S.Set Coord -> S.Set Coord -> Order -> S.Set Coord
 execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinates S.empty candidates
   where
-    mergeCoordinates !acc !candidate = S.union acc $! execOrder precomputed visited action candidate
+    mergeCoordinates !acc !candidate = S.union acc $! S.fromList . toList $ execOrder precomputed visited action candidate
 
-singleInSetIf :: Bool -> Coord -> S.Set Coord
-singleInSetIf !cond coord =
-  S.fromList $!
+singleInSeqIf :: Bool -> Coord -> DS.Seq Coord
+singleInSeqIf !cond coord =
   if cond
-    then [coord]
-    else []
+    then DS.singleton coord
+    else DS.empty
 
 enumerate = zip [0 ..]
+{-# INLINE enumerate #-}
 
-getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> DS.Seq (Coord, Direction, Int)
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = res
   where
-    !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    !inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    !inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
-    valid (coord, dir, index) = coord == c || (index <= 4 && coord `S.notMember` visitedSet && not (landMap precomputed V.! y coord V.! x coord))
+    res = foldl' pick DS.empty allGenerators
+    pick s l = s DS.>< DS.fromList (takeWhile valid l)
+    allGenerators = DS.fromList [inNorth, inSouth, inWest, inEast]
+    inNorth = map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    inSouth = map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    inWest = map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    inEast = map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    valid (coord, dir, index) = coord == c || (index <= 4 && not (landMap precomputed V.! y coord V.! x coord) && coord `S.notMember` visitedSet)
 
-execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
-execOrder precomputed _ (Move direction _) c = singleInSetIf (isWaterCoord (landMap precomputed) newC) newC
+execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> DS.Seq Coord
+execOrder precomputed _ (Move direction _) c = singleInSeqIf (isWaterCoord (landMap precomputed) newC) newC
   where
     newC = addDirToCoord c direction
-execOrder precomputed _ (Torpedo t) c = singleInSetIf (inTorpedoRange precomputed c t) c
-execOrder _ _ (Surface (Just sector)) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ _ (SonarResult sector True) c = singleInSetIf (sector == sectorFromCoord c) c
-execOrder _ _ (SonarResult sector False) c = singleInSetIf (sector /= sectorFromCoord c) c
-execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (getSilenceRange precomputed visited c)
-execOrder _ _ otherOrder state = S.fromList [state]
+execOrder precomputed _ (Torpedo t) c = singleInSeqIf (inTorpedoRange precomputed c t) c
+execOrder _ _ (Surface (Just sector)) c = singleInSeqIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector True) c = singleInSeqIf (sector == sectorFromCoord c) c
+execOrder _ _ (SonarResult sector False) c = singleInSeqIf (sector /= sectorFromCoord c) c
+execOrder precomputed visited (Silence _) c = DS.mapWithIndex (\_ (c, _, _) -> c) (getSilenceRange precomputed visited c)
+execOrder _ _ otherOrder state = DS.singleton state
 
 toOpponentInput :: Coord -> Order -> Order
 toOpponentInput _ (Move d _)      = Move d Nothing
@@ -492,7 +496,7 @@ findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove
     silencingOnce =
       if silenceCooldown state > 0
         then []
-        else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) $ S.toList $ getSilenceRange precomputed visitedSet curCoord
+        else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) $ toList $ getSilenceRange precomputed visitedSet curCoord
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
@@ -536,11 +540,10 @@ findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
     fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
     fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
 
-timeoutSample1 =
-  "\"x\\156\\133\\148a\\146\\131 \\fF\\ETX\\168`\\NAK\\SO\\181\\251\\187\\247\\191N\\NAK\\t\\234\\171\\217\\205\\DLE3\\143\\134|I\\EM\\NAK\\169\\246\\SYN/\\251r\\\"A\\215\\197\\134\\250\\f\\151U\\DC3\\a\\205;6\\\\+\\161\\219\\163k\\199\\147\\192\\170\\216\\160\\138\\253\\169\\219r\\151\\147\\166U5{\\209\\169\\&5\\219+^\\210\\190Vm)\\156G\\189\\158\\216\\236\\183\\197\\185\\197\\ENQ\\188\\130\\&3\\184\\180\\248\\&28\\131W\\240\\STXf\\156\\193\\t\\FSQ\\135\\156\\192\\156\\147}0\\174\\224\\f.\\200#g\\176\\181\\159\\141X\\254\\137\\204c\\USV\\223\\156\\139\\247\\194{WN\\224\\b\\158\\192#\\244\\201\\DC38\\130U\\175\\CAN\\FS\\193\\DC3x\\EOT\\235\\v\\150\\r\\SO`\\SI\\214\\183\\168\\CAN\\172\\150\\193+x1\\216\\129=X\\251{\\EM\\172\\243\\204\\224d\\176\\254?\\209\\224\\t\\172\\241\\231hu\\255\\n\\213\\232\\183x\\184\\156q\\208i\\234w\\232L\\217\\221m\\238\\247\\DC4\\215S\\\\\\219\\214\\159\\155_S|\\DC3P\\247=\\205=UrwA\\166\\248\\239J\\DEL\\137\\201\\243T\\254\\222\\238\\147\\DLE\\197\\170\\223-\\CAN\\172\\ETB0~\\NUL\\213A\\a\\183\""
+timeoutSample1 = "\"x\\156\\197\\151\\139V\\195 \\f@y\\173\\GS\\175\\253\\255\\US\\204\\239\\240\\203\\212vi\\225\\142X\\173G\\229\\148\\229\\\\\\154&@ 0c\\150\\242j\\156\\233\\158\\166\\132\\229\\215\\ESCc\\229\\241\\USm\\190yD\\207\\179yk\\179\\139\\213\\229\\&7\\244\\158F\\246\\252\\163\\205\\SUB\\244+\\240\\195\\147\\223\\246m\\150\\223\\142\\236\\181\\227P\\236\\217\\US|{\\194\\222\\DEL\\249X\\203K\\183<\\186e0\\148\\ETB\\240\\132v2%\\237\\136\\191I\\225#?\\148\\&3\\244\\132\\ETX\\216\\131\\157\\194W\\232\\147#\\244\\201\\t\\250\\228\\f}r\\129>\\185B_\\216*\\\\\\192\\EM\\156\\192\\DC1,\\227\\&7\\nGp\\STXgp\\SOHW\\240\\r\\254\\133\\GS\\216\\131\\131\\194\\NAK\\\\\\192\\EM,\\253\\191(\\156\\193\\ENQ\\\\\\193\\210\\159I\\225\\n.\\224\\fN\\224\\b\\150\\248\\204\\nGp\\STXgp\\SOHW\\176\\140\\231\\170p\\ENQ\\ETBp\\ACK'p\\EOTk\\237Q\\145\\t\\156\\193\\ENQ\\\\\\193\\&2\\158\\164p\\ENQ\\ETBp\\ACKS\\178\\159\\156\\a-n\\140\\187\\240\\ENQ\\FS\\192Z\\RSK\\n3\\143\\GS\\237\\DC3m\\221r]1\\238\\140\\v\\231-+\\178\\128+\\248\\ACK=r\\ENQS\\210\\SI\\227\\204u\\196u\\206}\\196}\\174\\229\\NAK\\230%a\\237\\FS)\\n\\243\\FS\\209\\242\\\"\\243\\SYN\\243\\DC2\\247=\\247\\&5\\247\\r\\247\\ENQ\\227\\194y\\175\\138\\188\\GSH\\234\\&1\\206\\\\\\a\\220\\199\\220\\231\\204c\\204s\\204\\227\\204\\243<\\135xn\\DEL\\247\\FS\\151\\194s\\147\\231\\234\\217s]xV\\152\\247$\\222\\163x\\207\\226=\\140\\247\\&4\\145\\247\\213\\213V\\221V\\253^\\131\\NAKw\\182{e\\247\\218\\170\\216\\254\\213\\174bU\\NAK\\183:\\r\\162\\241p4\\168Tq\\205k7v\\228\\DEL\\171/\\239\\170VSs\\159;{\\154\\190q\\DEL\\154\\209\\157t\\244'V\\156}\\142\\248\\&27nSs\\136\\149b\\233 V\\178\\242\\218\\200\\175\\220\\&93c\\181v\\145\\182\\150\\186\\254\\236V\\190\\&2\\248\\190H\\131\\246\\175jz\\ETX2\\235\\DC1\\141\""
 
-timeoutSample1Pre =
-  "\"x\\156\\157\\214Yr\\131\\&0\\f\\NULP\\155\\GS/\\228\\254\\199\\233\\205:]\\212\\194K\\201G\\249\\209<'\\ETX2\\216\\146S\\250\\188\\222\\210\\235+\\227\\SOH\\143x\\194\\&3\\222\\240\\142\\v\\174\\184\\225\\142\\143\\239h\\222\\249&\\SOx\\196\\DC3\\158\\241\\134w\\\\p\\197\\rw\\FS\\243\\&1\\207\\225&\\142x\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\223\\171y\\142\\&7q\\193+\\222\\240\\142\\v\\174\\184\\225\\142#\\DEL\\215\\181\\235\\\"<\\224\\DC1\\ESCg\\188\\224\\NAK\\ETB\\\\q\\195\\GS\\199|\\220\\151\\174\\235\\240\\128G\\236<\\140\\v^q\\193\\NAK7\\220q\\204'\\158\\147p\\198\\238\\v\\243\\&4\\174x\\195;.\\184\\226\\134;\\142\\249\\196s\\DC3\\206\\216}\\237{v\\RS\\198\\r\\239\\184\\224\\138\\ESC\\238\\&8\\230c\\221\\183nZ\\135\\220\\215\\225\\t\\207\\216\\239\\228<\\141;.\\184\\226\\134;\\142\\249\\218\\a\\172\\171\\214\\169\\240\\132\\253.\\230m,\\184\\226\\134;\\142\\252\\237[\\246\\SOH\\235\\170u\\201u\\227{5\\207r\\DC3+n\\184\\227\\200\\223s\\131}\\215>f_\\176\\174\\186\\238]\\ETB\\190g\\243\\174\\&7\\177\\225\\142\\SI\\254\\151\\176\\231\\b\\251\\178}\\206>a\\157\\181N\\185\\207\\221\\a\\174+\\191\\147\\243\\&4v|0\\158\\176\\231$\\207\\GS\\246q\\251\\160}\\196:l\\GSs\\159\\251\\157\\156\\135\\241 &\\236\\&9\\239\\174O\\219\\231\\236\\DC3\\214Y\\247\\129\\235\\200\\247l\\158\\143\\223\\152\\191r\\204\\231#\\245#\\253y1\\156\\175\\195q\\135\\211\\240\\199\\208\\229\\198<\\242\\244\\211\\227\\a7\\195\\207\\153<\\255t\\GS\\206$\\248z\\248z\\147\\DEL\\SI\\191\\ETX\\240\\182\\f\\154\""
+timeoutSample1Pre = "\"x\\156\\165\\215mN\\132\\&0\\DLE\\NUL\\208\\178P\\160_\\236\\253o\\228\\177\\212\\r\\DC3\\205SV\\141\\252p\\242\\170\\t\\GS\\218\\206\\212\\148\\RS\\207Kz\\254L\\248\\134g\\188\\224\\140w\\\\p\\197\\rw<\\240qF\\231=]\\196\\ESC\\158\\241\\130\\&3\\222q\\193\\NAK7\\220\\241\\192\\145\\143\\223=<\\227\\ENQg\\188\\226\\r\\239\\184\\224\\138\\ESC\\238x\\224\\200g\\190\\136\\v\\206x\\197\\ESC\\222q\\193\\NAK7\\220\\241\\192\\&1\\DEL\\231\\185\\\\\\196\\140W\\188\\225\\138\\ESC\\238x\\224\\152\\159\\223\\205y\\228\\139\\184\\226\\rW\\220p\\199\\ETX\\199\\252\\226=\\DC3v\\159\\186\\238~G\\231m\\220\\240\\142\\v\\174\\184\\225\\142\\a\\142\\252\\226\\189\\tO\\216s\\232\\190v\\159\\184.\\230i\\220q\\193\\NAK7\\220\\241\\192\\145\\175u\\208:\\226\\185\\f/8c\\215\\205\\188\\140\\ENQW\\220p\\199\\ETXG~\\214u\\235\\162u&\\188\\224\\140\\221\\135\\174\\147y\\EM+n\\184\\227\\129#?\\251\\148u\\222\\186i\\157\\178.x\\142\\220g\\174\\139y\\212\\139\\216p\\199\\ETXG~\\222#\\236\\195\\246\\&1\\251\\130u\\216\\186g\\157\\240\\FS\\185\\239\\\\'\\243j\\ETB\\177\\227\\129\\SI\\254.a\\239\\GS\\246m\\251\\160}\\199:o]\\180nx\\206\\220\\151\\174\\163y\\SUB\\a>\\CANO\\216{\\149\\247\\DC2\\251\\188}\\213>f\\221\\183.ZG<w\\238S\\215\\209<\\141\\a1\\225\\171{\\138\\247\\STX\\251\\176}\\203\\186n\\GS\\180nx\\206\\220\\135\\174\\147y\\220?\\197\\233\\237y\\255\\145>\\158\\251\\&9z>\\211\\143\\195\\223=\\DEL\\FS\\158\\252\\US\\226\\233\\240\\227\\253_~\\245l\\248\\223\\DC3\\252\\221\\240+\\CAN\\192\\r\\\\\""
+
 
 shortEncode :: Binary a => a -> String
 shortEncode e = show $ Zlib.compress $ encode e
@@ -672,4 +675,4 @@ perf = do
 --  print precomputed
 --  print state
 main :: IO ()
-main = game
+main = perf
