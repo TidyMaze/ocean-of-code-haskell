@@ -218,7 +218,7 @@ singleInSetIf !cond coord =
 enumerate = zip [0 ..]
 
 getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.foldl' S.union S.empty $ S.fromList [inNorth, inSouth, inWest, inEast]
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
   where
     !inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
     !inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
@@ -267,8 +267,7 @@ coordToIndex c = y c * 15 + x c
 indexToCoord i = Coord (i `mod` 15) (i `div` 15)
 
 {-# INLINE indexToCoord #-}
-convertKey (i, v)
-  | v == maxBound = Nothing
+convertKey (i, v) | v == maxBound = Nothing
 convertKey (i, v) = Just (indexToCoord i, v)
 
 {-# INLINE convertKey #-}
@@ -302,10 +301,8 @@ bfsAux !dist !getNeighbors !q =
 bfsLimited :: Int -> [Coord] -> (Coord -> [Coord]) -> Coord -> Map.Map Coord Int
 bfsLimited limit waterCoords getNeighbors = bfs waterCoords neighborsWithDist
   where
-    neighborsWithDist coord dist
-      | dist >= 4 = []
-    neighborsWithDist coord dist
-      | dist < 4 = getNeighbors coord
+    neighborsWithDist coord dist | dist >= 4 = []
+    neighborsWithDist coord dist | dist < 4 = getNeighbors coord
 
 findMove :: Precomputed -> [Coord] -> Maybe Coord -> Maybe (Direction, Coord)
 findMove precomputed visited target = listToMaybe (sortOn (\(dir, d) -> criteria target d) neighbors)
@@ -552,11 +549,17 @@ shortDecode :: Binary a => String -> a
 shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
 findOrders precomputed afterParsingInputsState = do
+--  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
+--  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
+--  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
   let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
   let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
+--  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
+--  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
+--  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         findAttackSequence
@@ -586,12 +589,6 @@ findOrders precomputed afterParsingInputsState = do
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   return (out, resState)
 
---  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
---  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
---  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
---  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
---  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
---  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
 gameLoop :: Precomputed -> State -> IO ()
 gameLoop !precomputed !oldState = do
   input_line <- getLine
@@ -607,6 +604,7 @@ gameLoop !precomputed !oldState = do
   input_line <- getLine
   let sonarresult = input_line :: String
   opponentOrders <- getLine
+--  debug ("third line " ++ opponentOrders)
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
@@ -618,18 +616,22 @@ gameLoop !precomputed !oldState = do
           , myLife = myLife
           , oppLife = oppLife
           }
+  debug $ show $ shortEncode afterParsingInputsState
   (out, resState) <- findOrders precomputed afterParsingInputsState
   send out
   gameLoop precomputed resState
 
---  debug ("third line " ++ opponentOrders)
---  debug $ show $ shortEncode afterParsingInputsState
 buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
   where
     mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
     getTorpedoRange waterCoords landMap = bfsLimited torpedoRange waterCoords fn
       where
         fn = map snd . getWaterNeighbors landMap
+
+instance Binary a => Binary (V.Vector a)
+  where
+    put v = put $ V.toList v
+    get = fmap V.fromList get
 
 game :: IO ()
 game = do
@@ -648,14 +650,14 @@ game = do
   endTime <- getCurrentTime
   let elapsed = diffUTCTime endTime startTime
   debug ("spent " ++ show (realToFrac (toRational elapsed * 1000)) ++ " ms")
+  debug $ show $ shortEncode (waterCoords, landMap)
   send $ show startX ++ " " ++ show startY
   let state =
         State
           {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
   gameLoop precomputed state
-
---  debug $ show $ shortEncode (waterCoords, landMap)
 --  debug (show precomputed)
+
 perf :: IO ()
 perf = do
   (orders, _) <- findOrders precomputed state
@@ -667,44 +669,7 @@ perf = do
     state = shortDecode timeoutSample1
     (waterCoords, landMap) = shortDecode timeoutSample1Pre :: ([Coord], [[Bool]])
 
-timeit :: Show a => (() -> a) -> IO a
-timeit a = do
-  startTime <- getCurrentTime
-  let !computed = a ()
-  elapsed <- getElapsedTime startTime
-  print elapsed
-  return computed
-
---mergeSetUnions :: () -> S.Set Int
---mergeSetUnions _ = S.unions $ map S.fromList [[1 .. 1000000], [500000 .. 1500000], [1000000 .. 2000000], [1500000 .. 2500000]]
---
---mergeSetUnions' :: () -> S.Set Int
---mergeSetUnions' _ = S.unions other
---  where other = S.fromList (map S.fromList [[1 .. 1000000], [500000 .. 1500000], [1000000 .. 2000000], [1500000 .. 2500000]] :: [S.Set Int]) :: S.Set (S.Set Int)
---
---mergeFoldSetUnion :: () -> S.Set Int
---mergeFoldSetUnion _ = S.foldl' S.union S.empty $ S.fromList $ map S.fromList [[1 .. 1000000], [500000 .. 1500000], [1000000 .. 2000000], [1500000 .. 2500000]]
---
---mergeListThenSet :: () -> S.Set Int
---mergeListThenSet _ = S.fromList $ concat [[1 .. 1000000], [500000 .. 1500000], [1000000 .. 2000000], [1500000 .. 2500000]]
-
---mergeNubListThenSet :: () -> S.Set Int
---mergeNubListThenSet _ = S.fromList $ concat $ map nub [[1..1000000], [500000 .. 1500000], [1000000 .. 2000000], [1500000..2500000]]
---mergePerf :: IO ()
---mergePerf = do
---  res1 <- timeit mergeSetUnions
---  print $ show $ length res1
---  res1' <- timeit mergeSetUnions'
---  print $ show $ length res1'
---  res2 <- timeit mergeFoldSetUnion
---  print $ show $ length res2
---  res3 <- timeit mergeListThenSet
---  print $ show $ length res3
---  return ()
-
---  res4 <- timeit mergeNubListThenSet
---  print $ show $ length res4
 --  print precomputed
 --  print state
 main :: IO ()
-main = perf
+main = game
