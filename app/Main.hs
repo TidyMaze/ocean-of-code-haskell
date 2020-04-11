@@ -549,17 +549,17 @@ shortDecode :: Binary a => String -> a
 shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
 findOrders precomputed afterParsingInputsState = do
-  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
+--  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
-  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
+--  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
-  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
+--  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
   let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
   let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
-  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
-  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
-  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
+--  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
+--  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
+--  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         findAttackSequence
@@ -604,7 +604,7 @@ gameLoop !precomputed !oldState = do
   input_line <- getLine
   let sonarresult = input_line :: String
   opponentOrders <- getLine
-  debug ("third line " ++ opponentOrders)
+--  debug ("third line " ++ opponentOrders)
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
@@ -667,4 +667,4 @@ perf = do
 --  print precomputed
 --  print state
 main :: IO ()
-main = perf
+main = game
