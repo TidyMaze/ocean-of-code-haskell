@@ -472,11 +472,12 @@ data State =
 
 instance Binary State
 
-findAttackSequence :: Precomputed -> State -> Maybe Coord -> [([Order], [Coord], Int, Int)]
+findAttackSequence :: Precomputed -> State -> Maybe ([Coord], Int) -> [([Order], [Coord], Int, Int)]
 findAttackSequence _ _ Nothing = []
+findAttackSequence _ _ (Just ([], _)) = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
-findAttackSequence precomputed state (Just target) = findAttackSequenceAfterMove precomputed target (notMoving ++ movingOnce ++ silencingOnce)
+findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce)
   where
     curCoord = safeHead "curCoord3" $ myCoordHistory state
     visitedSet = S.fromList $ myCoordHistory state
@@ -511,10 +512,21 @@ coordsBetween (Coord fx fy) (Coord tx ty) = res
             else [fy,fy - 1 .. ty]
       ]
 
-findAttackSequenceAfterMove :: Precomputed -> Coord -> [([Order], [Coord], Int)] -> [([Order], [Coord], Int, Int)]
-findAttackSequenceAfterMove precomputed target sequences = concatMap getDmg sequences
+findAttackSequenceAfterMove :: Precomputed -> ([Coord], Int) -> [([Order], [Coord], Int)] -> [([Order], [Coord], Int, Int)]
+findAttackSequenceAfterMove precomputed (targets, minDmg) sequences = concatMap getDmg sequences
   where
-    getDmg (orders, newCoords, 0) = map (\c -> (orders ++ [Torpedo c], newCoords, explosionDamages c target, explosionDamages c curCoord)) (filter ((<= 1) . diagDst target) whereICanShoot)
+    getDmg (orders, newCoords, 0) =
+      map
+        (\c ->
+           let dmg =
+                 case () of
+                   _
+                     | minDmg == 2 -> explosionDamages c (head targets)
+                   _
+                     | c `elem` targets -> minDmg
+                   _ -> 0
+            in (orders ++ [Torpedo c], newCoords, dmg, explosionDamages c curCoord))
+        (filter (\c -> (minDmg == 2 && diagDst c (head targets) <= 1) || c `elem` targets) whereICanShoot)
       where
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
         curCoord = last newCoords
@@ -530,14 +542,14 @@ findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSet
     maybeTorpedoAction = getTorpedoAction precomputed oppSetOfShooting oppFound stateAfterMove
     maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates
 
-findCenterOfExplosion :: Precomputed -> [Coord] -> Maybe [Coord]
-findCenterOfExplosion _ [x] = Just [x]
+findCenterOfExplosion :: Precomputed -> [Coord] -> Maybe ([Coord], Int)
+findCenterOfExplosion _ [x] = Just ([x], 2)
 findCenterOfExplosion _ coords
   | length coords > 9 = Nothing
 findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
   where
-    fromCandidates = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) coords)
-    fromAnyWater = mfilter (not . null) (Just $ filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed))
+    fromCandidates = mfilter (not . null . fst) (Just (filter (\c -> all (inExplosionRange c) coords) coords, 1))
+    fromAnyWater = mfilter (not . null . fst) (Just (filter (\c -> all (inExplosionRange c) coords) (waterCoords precomputed), 1))
 
 timeoutSample1 =
   "\"x\\156\\197\\151\\139V\\195 \\f@y\\173\\GS\\175\\253\\255\\US\\204\\239\\240\\203\\212vi\\225\\142X\\173G\\229\\148\\229\\\\\\154&@ 0c\\150\\242j\\156\\233\\158\\166\\132\\229\\215\\ESCc\\229\\241\\USm\\190yD\\207\\179yk\\179\\139\\213\\229\\&7\\244\\158F\\246\\252\\163\\205\\SUB\\244+\\240\\195\\147\\223\\246m\\150\\223\\142\\236\\181\\227P\\236\\217\\US|{\\194\\222\\DEL\\249X\\203K\\183<\\186e0\\148\\ETB\\240\\132v2%\\237\\136\\191I\\225#?\\148\\&3\\244\\132\\ETX\\216\\131\\157\\194W\\232\\147#\\244\\201\\t\\250\\228\\f}r\\129>\\185B_\\216*\\\\\\192\\EM\\156\\192\\DC1,\\227\\&7\\nGp\\STXgp\\SOHW\\240\\r\\254\\133\\GS\\216\\131\\131\\194\\NAK\\\\\\192\\EM,\\253\\191(\\156\\193\\ENQ\\\\\\193\\210\\159I\\225\\n.\\224\\fN\\224\\b\\150\\248\\204\\nGp\\STXgp\\SOHW\\176\\140\\231\\170p\\ENQ\\ETBp\\ACK'p\\EOTk\\237Q\\145\\t\\156\\193\\ENQ\\\\\\193\\&2\\158\\164p\\ENQ\\ETBp\\ACKS\\178\\159\\156\\a-n\\140\\187\\240\\ENQ\\FS\\192Z\\RSK\\n3\\143\\GS\\237\\DC3m\\221r]1\\238\\140\\v\\231-+\\178\\128+\\248\\ACK=r\\ENQS\\210\\SI\\227\\204u\\196u\\206}\\196}\\174\\229\\NAK\\230%a\\237\\FS)\\n\\243\\FS\\209\\242\\\"\\243\\SYN\\243\\DC2\\247=\\247\\&5\\247\\r\\247\\ENQ\\227\\194y\\175\\138\\188\\GSH\\234\\&1\\206\\\\\\a\\220\\199\\220\\231\\204c\\204s\\204\\227\\204\\243<\\135xn\\DEL\\247\\FS\\151\\194s\\147\\231\\234\\217s]xV\\152\\247$\\222\\163x\\207\\226=\\140\\247\\&4\\145\\247\\213\\213V\\221V\\253^\\131\\NAKw\\182{e\\247\\218\\170\\216\\254\\213\\174bU\\NAK\\183:\\r\\162\\241p4\\168Tq\\205k7v\\228\\DEL\\171/\\239\\170VSs\\159;{\\154\\190q\\DEL\\154\\209\\157t\\244'V\\156}\\142\\248\\&27nSs\\136\\149b\\233 V\\178\\242\\218\\200\\175\\220\\&93c\\181v\\145\\182\\150\\186\\254\\236V\\190\\&2\\248\\190H\\131\\246\\175jz\\ETX2\\235\\DC1\\141\""
@@ -554,17 +566,11 @@ shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 findOrders precomputed afterParsingInputsState = do
   let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
   let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
-  let maybeOppBaryWithMeanDev = findCenterOfExplosion precomputed opponentCandidates
+  let maybeOppListOfShooting = findCenterOfExplosion precomputed opponentCandidates
   let oppFound = length opponentCandidates == 1
-  let maybeMyBaryWithMeanDev = findCenterOfExplosion precomputed myCandidates
+  let maybeMyListOfShooting = findCenterOfExplosion precomputed myCandidates
   let attackSeq =
-        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
-        findAttackSequence
-          precomputed
-          afterParsingInputsState
-          (if oppFound
-             then Just (safeHead "oppFound" opponentCandidates)
-             else Nothing)
+        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $ findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
   T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         case attackSeq of
@@ -580,7 +586,7 @@ findOrders precomputed afterParsingInputsState = do
                   isMoveOrSurface _           = False
                   hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
-          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState maybeMyBaryWithMeanDev maybeOppBaryWithMeanDev opponentCandidates oppFound
+          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) opponentCandidates oppFound
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates))
   let !resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
@@ -674,4 +680,4 @@ perf = do
 --  print precomputed
 --  print state
 main :: IO ()
-main = perf
+main = game
