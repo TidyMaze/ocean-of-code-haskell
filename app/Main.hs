@@ -234,7 +234,7 @@ execOrder precomputed _ (Torpedo t) c = singleInSeqIf (inTorpedoRange precompute
 execOrder _ _ (Surface (Just sector)) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector True) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector False) c = singleInSeqIf (sector /= sectorFromCoord c) c
-execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (S.fromList $ getSilenceRange precomputed visited c)
+execOrder precomputed visited (Silence _) c = S.fromList $ map (\(c, _, _) -> c) $ getSilenceRange precomputed visited c
 execOrder _ _ otherOrder state = S.singleton state
 
 toOpponentInput :: Coord -> Order -> Order
