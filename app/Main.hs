@@ -217,13 +217,13 @@ singleInSeqIf !cond coord =
 enumerate = zip [0 ..]
 
 {-# INLINE enumerate #-}
-getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> S.Set (Coord, Direction, Int)
-getSilenceRange precomputed visitedSet c@(Coord cX cY) = S.unions [inNorth, inSouth, inWest, inEast]
+getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> [(Coord, Direction, Int)]
+getSilenceRange precomputed visitedSet c@(Coord cX cY) = concat [inNorth, inSouth, inWest, inEast]
   where
-    inNorth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
-    inSouth = S.fromList $ takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
-    inWest = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
-    inEast = S.fromList $ takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
+    inNorth = takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY,cY - 1 .. 0]
+    inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY,cY + 1 .. 14]
+    inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX,cX - 1 .. 0]
+    inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX,cX + 1 .. 14]
     valid (coord, dir, index) = coord == c || (index <= 4 && not (landMap precomputed V.! y coord V.! x coord) && coord `S.notMember` visitedSet)
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> S.Set Coord
@@ -234,7 +234,7 @@ execOrder precomputed _ (Torpedo t) c = singleInSeqIf (inTorpedoRange precompute
 execOrder _ _ (Surface (Just sector)) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector True) c = singleInSeqIf (sector == sectorFromCoord c) c
 execOrder _ _ (SonarResult sector False) c = singleInSeqIf (sector /= sectorFromCoord c) c
-execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (getSilenceRange precomputed visited c)
+execOrder precomputed visited (Silence _) c = S.map (\(c, _, _) -> c) (S.fromList $ getSilenceRange precomputed visited c)
 execOrder _ _ otherOrder state = S.singleton state
 
 toOpponentInput :: Coord -> Order -> Order
