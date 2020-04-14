@@ -566,9 +566,13 @@ shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidates = do
   let !opponentCandidates = findPositionFromHistory precomputed oppOldCandidates (opponentHistory afterParsingInputsState)
   let !myCandidates = findPositionFromHistory precomputed myOldCandidates (myHistory afterParsingInputsState)
+  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (S.take 5 opponentCandidates))
+  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (S.take 5 myCandidates))
   let maybeOppListOfShooting = findCenterOfExplosion precomputed $ S.toList opponentCandidates
   let oppFound = length opponentCandidates == 1
   let maybeMyListOfShooting = findCenterOfExplosion precomputed $ S.toList myCandidates
+  debug ("I think you are at " ++ show maybeOppListOfShooting)
+  debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $ findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
   T.traceShowM $ "attackSeq" ++ show attackSeq
@@ -592,12 +596,6 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   return (out, resState, myCandidates, opponentCandidates)
 
---  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
---  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
---  debug ("my candidates (" ++ show (length myCandidates) ++ "): " ++ show (take 5 myCandidates))
---  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
---  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
---  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
 gameLoop :: Precomputed -> State -> S.Set Coord -> S.Set Coord -> IO ()
 gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
   input_line <- getLine
@@ -613,6 +611,7 @@ gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
   input_line <- getLine
   let sonarresult = input_line :: String
   opponentOrders <- getLine
+  startTime <- getCurrentTime
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
@@ -625,11 +624,14 @@ gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
           , oppLife = oppLife
           }
   debug $ show $ shortEncode afterParsingInputsState
-  (out, resState, myNewCandidates, oppNewCandidates) <- findOrders precomputed afterParsingInputsState myOldCandidates oppOldCandidates
+  (!out, !resState, !myNewCandidates, !oppNewCandidates) <- findOrders precomputed afterParsingInputsState myOldCandidates oppOldCandidates
+  endTime <- getCurrentTime
+  let elapsed = diffUTCTime endTime startTime
+  let spentString = show (realToFrac (toRational elapsed * 1000)) ++ " ms"
+  debug ("spent " ++ spentString)
   send out
   gameLoop precomputed resState myNewCandidates oppNewCandidates
 
---  debug ("third line " ++ opponentOrders)
 buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
   where
     mapping = map (\x -> (x, getTorpedoRange waterCoords landMap x)) waterCoords
