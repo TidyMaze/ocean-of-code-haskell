@@ -574,7 +574,9 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   debug ("I think you are at " ++ show maybeOppListOfShooting)
   debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
-        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $ findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
+        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
+        filter (\(orders, newCoords, damagesGiven, damagesTaken) -> damagesGiven < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
+        findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
   T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         case attackSeq of
