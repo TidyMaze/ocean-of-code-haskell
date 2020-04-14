@@ -200,8 +200,8 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
-findPositionFromHistory :: Precomputed -> [Order] -> S.Set Coord
-findPositionFromHistory !precomputed !history = foldl' (execOrderBulk precomputed S.empty) (S.fromList (waterCoords precomputed)) history
+findPositionFromHistory :: Precomputed -> S.Set Coord -> [Order] -> S.Set Coord
+findPositionFromHistory !precomputed !lastCandidates !history = foldl' (execOrderBulk precomputed S.empty) lastCandidates history
 
 execOrderBulk :: Precomputed -> S.Set Coord -> S.Set Coord -> Order -> S.Set Coord
 execOrderBulk !precomputed visited !candidates !action = S.foldl' mergeCoordinates S.empty candidates
@@ -447,8 +447,8 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
     parseNew (Sonar (Just sector)) = Just (SonarResult sector (sonarResult == "Y"))
     parseNew _ = Nothing
 
-buildNewOpponentHistory oldOpponentHistory sonarResultAction "NA" = oldOpponentHistory ++ maybeToList sonarResultAction
-buildNewOpponentHistory oldOpponentHistory sonarResultAction opponentOrders = oldOpponentHistory ++ maybeToList sonarResultAction ++ map fst (parseOrders opponentOrders)
+buildNewOpponentHistory sonarResultAction "NA" = maybeToList sonarResultAction
+buildNewOpponentHistory sonarResultAction opponentOrders = maybeToList sonarResultAction ++ map fst (parseOrders opponentOrders)
 
 getElapsedTime startTime = do
   endTime <- getCurrentTime
@@ -563,12 +563,12 @@ shortEncode e = show $ Zlib.compress $ encode e
 shortDecode :: Binary a => String -> a
 shortDecode raw = decode $ Zlib.decompress (read raw :: LBS.ByteString)
 
-findOrders precomputed afterParsingInputsState = do
-  let !opponentCandidates = S.toList $! findPositionFromHistory precomputed (opponentHistory afterParsingInputsState)
-  let !myCandidates = S.toList $! findPositionFromHistory precomputed (myHistory afterParsingInputsState)
-  let maybeOppListOfShooting = findCenterOfExplosion precomputed opponentCandidates
+findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidates = do
+  let !opponentCandidates = findPositionFromHistory precomputed oppOldCandidates (opponentHistory afterParsingInputsState)
+  let !myCandidates = findPositionFromHistory precomputed myOldCandidates (myHistory afterParsingInputsState)
+  let maybeOppListOfShooting = findCenterOfExplosion precomputed $ S.toList opponentCandidates
   let oppFound = length opponentCandidates == 1
-  let maybeMyListOfShooting = findCenterOfExplosion precomputed myCandidates
+  let maybeMyListOfShooting = findCenterOfExplosion precomputed $ S.toList myCandidates
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $ findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
   T.traceShowM $ "attackSeq" ++ show attackSeq
@@ -586,11 +586,11 @@ findOrders precomputed afterParsingInputsState = do
                   isMoveOrSurface _           = False
                   hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
                   maybeSonarAction = Nothing
-          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) opponentCandidates oppFound
+          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) (S.toList opponentCandidates) oppFound
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates))
-  let !resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = myHistory afterParsingInputsState ++ actions, lastSonarAction = maybeSonarAction}
+  let !resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
-  return (out, resState)
+  return (out, resState, myCandidates, opponentCandidates)
 
 --  debug ("history " ++ show (length $ myHistory afterParsingInputsState) ++ " " ++ show (length $ opponentHistory afterParsingInputsState))
 --  debug ("opp candidates (" ++ show (length opponentCandidates) ++ "): " ++ show (take 5 opponentCandidates))
@@ -598,8 +598,8 @@ findOrders precomputed afterParsingInputsState = do
 --  debug ("I think you are at " ++ show maybeOppBaryWithMeanDev)
 --  debug ("You think I'm at " ++ show maybeMyBaryWithMeanDev)
 --  debug ("Closest waters is " ++ show maybeOppBaryWithMeanDev)
-gameLoop :: Precomputed -> State -> IO ()
-gameLoop !precomputed !oldState = do
+gameLoop :: Precomputed -> State -> S.Set Coord -> S.Set Coord -> IO ()
+gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
   input_line <- getLine
   let input = words input_line
   let x = read (input !! 0) :: Int
@@ -616,7 +616,7 @@ gameLoop !precomputed !oldState = do
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
-          , opponentHistory = buildNewOpponentHistory (opponentHistory oldState) (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
+          , opponentHistory = buildNewOpponentHistory (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
           , torpedoCooldown = torpedocooldown
           , sonarCooldown = sonarcooldown
           , silenceCooldown = silencecooldown
@@ -625,9 +625,9 @@ gameLoop !precomputed !oldState = do
           , oppLife = oppLife
           }
   debug $ show $ shortEncode afterParsingInputsState
-  (out, resState) <- findOrders precomputed afterParsingInputsState
+  (out, resState, myNewCandidates, oppNewCandidates) <- findOrders precomputed afterParsingInputsState myOldCandidates oppOldCandidates
   send out
-  gameLoop precomputed resState
+  gameLoop precomputed resState myNewCandidates oppNewCandidates
 
 --  debug ("third line " ++ opponentOrders)
 buildPrecomputed waterCoords landMap = Precomputed {coordsInRange = Map.fromList mapping, waterCoords = waterCoords, landMap = landMap}
@@ -643,7 +643,7 @@ instance Binary a => Binary (V.Vector a) where
 
 game :: IO ()
 game = do
-  hSetBuffering stdout NoBuffering -- DO NOT REMOVE
+  hSetBuffering stdout NoBuffering
   input_line <- getLine
   let input = words input_line
   let width = read (input !! 0) :: Int
@@ -663,12 +663,13 @@ game = do
   let state =
         State
           {myHistory = [], opponentHistory = [], myCoordHistory = [], lastSonarAction = Nothing, torpedoCooldown = 3, sonarCooldown = 4, silenceCooldown = 6, mineCooldown = 3, myLife = 6, oppLife = 6}
-  gameLoop precomputed state
+  let wc = S.fromList waterCoords
+  gameLoop precomputed state wc wc
 
 --  debug (show precomputed)
 perf :: IO ()
 perf = do
-  (orders, _) <- findOrders precomputed state
+  (orders, _, _, _) <- findOrders precomputed state S.empty S.empty
   print $ orders
   print "done"
   return ()
