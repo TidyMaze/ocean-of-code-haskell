@@ -200,6 +200,7 @@ findStartCoord waterCoords width height = minimumBy (comparing byManhattanToCent
   where
     byManhattanToCenter = manhattan (Coord (width `div` 2) (height `div` 2))
 
+-- TODO: use oppLife to deduce location after torpedo (ignore complex cases)
 findPositionFromHistory :: Precomputed -> S.Set Coord -> [Order] -> S.Set Coord
 findPositionFromHistory !precomputed !lastCandidates !history = foldl' (execOrderBulk precomputed S.empty) lastCandidates history
 
