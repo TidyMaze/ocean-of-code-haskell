@@ -610,7 +610,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         filter (\(orders, newCoords, damagesGiven, damagesTaken) -> damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
         findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
-  T.traceShowM $ "attackSeq" ++ show attackSeq
+--  T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         case attackSeq of
           (x:_) -> trace "rushing" (orders, hist, maybeSonarAction)
