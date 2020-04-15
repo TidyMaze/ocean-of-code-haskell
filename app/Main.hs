@@ -490,16 +490,18 @@ applyOrder o@(Move dir (Just powerBought)) state =
     }
   where
     newC = addDirToCoord (head $ myCoordHistory state) dir
-applyOrder o@(Silence (Just (dir, size))) state = state {myCoordHistory = reverse (coordsBetween curCoord newC) ++ myCoordHistory state}
+applyOrder o@(Silence (Just (dir, size))) state = state { myCoordHistory = reverse (coordsBetween curCoord newC) ++ myCoordHistory state
+                                                        , myHistory = myHistory state ++ [o]
+                                                        }
   where
     curCoord = head $ myCoordHistory state
     newC = foldl' addDirToCoord curCoord (replicate size dir)
 
-getMovingOnce precomputed state = map prepareAction neighbors
+getMovingOnce precomputed state oldOrders = map prepareAction neighbors
   where
     curCoord = head $ myCoordHistory state
     visitedSet = S.fromList $ myCoordHistory state
-    prepareAction (d, newC) = ([newAction], applyOrder newAction state)
+    prepareAction (d, newC) = (oldOrders ++ [newAction], applyOrder newAction state)
       where
         newAction = Move d (Just powerBought)
     powerBought =
@@ -508,12 +510,12 @@ getMovingOnce precomputed state = map prepareAction neighbors
         else getPowerToBuy state
     neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet
 
-getSilencingOnce precomputed state =
+getSilencingOnce precomputed state oldOrders =
   if silenceCooldown state > 0
     then []
     else let visitedSet = S.fromList $ myCoordHistory state
              curCoord = head $ myCoordHistory state
-             prepareAction (newC, d, size) = ([newAction], applyOrder newAction state)
+             prepareAction (newC, d, size) = (oldOrders ++ [newAction], applyOrder newAction state)
                where
                  newAction = Silence (Just (d, size))
           in map prepareAction $ toList $ getSilenceRange precomputed visitedSet curCoord
@@ -524,11 +526,12 @@ findAttackSequence _ _ Nothing = []
 findAttackSequence _ _ (Just ([], _)) = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
-findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce)
+findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce ++ moveSilence)
   where
     notMoving = [([], state)]
-    movingOnce = getMovingOnce precomputed state
-    silencingOnce = getSilencingOnce precomputed state
+    movingOnce = getMovingOnce precomputed state []
+    silencingOnce = getSilencingOnce precomputed state []
+    moveSilence = concatMap (\(orders, state') -> getSilencingOnce precomputed state' orders) $ getMovingOnce precomputed state []
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
