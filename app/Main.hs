@@ -526,12 +526,13 @@ findAttackSequence _ _ Nothing = []
 findAttackSequence _ _ (Just ([], _)) = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
-findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce ++ moveSilence)
+findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce ++ moveSilence ++ silenceMove)
   where
     notMoving = [([], state)]
     movingOnce = getMovingOnce precomputed state []
     silencingOnce = getSilencingOnce precomputed state []
     moveSilence = concatMap (\(orders, state') -> getSilencingOnce precomputed state' orders) $ getMovingOnce precomputed state []
+    silenceMove = concatMap (\(orders, state') -> getMovingOnce precomputed state' orders) $ getSilencingOnce precomputed state []
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
