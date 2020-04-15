@@ -402,35 +402,6 @@ explosionDamages landing dest =
     1 -> 1
     _ -> 0
 
-getTorpedoAction :: Precomputed -> Maybe [Coord] -> Bool -> State -> Maybe Order
-getTorpedoAction precomputed targets oppFound state =
-  case (torpedoCooldown state, targets, oppFound) of
-    (0, Just candidates, False) -> fmap Torpedo closestToTarget
-      where closestToTarget = minByOption (manhattan after) (filter iCanShootSafely candidates)
-            after = head $ myCoordHistory state
-            iCanShootSafely closeTarget = iCanHitThisCloseCoord && notGettingHurt
-              where
-                iCanHitThisCloseCoord = inTorpedoRange precomputed after closeTarget
-                notGettingHurt = not (inExplosionRange closeTarget after)
-    (0, Just [realTarget], True) -> fmap Torpedo closestToTarget
-      where after = head $ myCoordHistory state
-            closestToTarget =
-              fmap
-                (\(c, dmgGiven, dmgReceived, diffDmg) -> c)
-                (maxByOption (\(c, dmgGiven, dmgReceived, diffDmg) -> (dmgGiven, -dmgReceived)) (filter dontDoAnythingStupid (map getShootData (waterCoords precomputed))))
-            dontDoAnythingStupid (c, dmgGiven, dmgReceived, diffDmg) = iCanShootIt && doNotSuicide && iDealDamages && canTakeALotIfIKill
-              where
-                iCanShootIt = inTorpedoRange precomputed after c
-                doNotSuicide = dmgReceived < myLife state
-                iDealDamages = dmgGiven > 0
-                canTakeALotIfIKill = diffDmg > 0 || (dmgGiven >= oppLife state && dmgReceived < myLife state)
-            getShootData c = (c, dmgGiven, dmgReceived, dmgGiven - dmgReceived)
-              where
-                dmgReceived = explosionDamages c after
-                dmgGiven = explosionDamages c realTarget
-    (0, Just [], _) -> Nothing
-    (_, _, _) -> Nothing
-
 groupBy :: Ord b => (a -> b) -> [a] -> Map.Map b [a]
 groupBy f elems = Map.fromListWith (++) (map (\x -> (f x, [x])) elems)
 
@@ -576,7 +547,7 @@ findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSet
     moveTarget = oppSetOfShooting >>= minByOption (manhattan $ head $ myCoordHistory afterParsingInputsState)
     (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState moveTarget
     stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
-    maybeTorpedoAction = getTorpedoAction precomputed oppSetOfShooting oppFound stateAfterMove
+    maybeTorpedoAction = Nothing
     maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates
 
 findCenterOfExplosion :: Precomputed -> [Coord] -> Maybe ([Coord], Int)
@@ -612,7 +583,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
-        filter (\(orders, newCoords, damagesGiven, damagesTaken) -> damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
+        filter (\(orders, newCoords, damagesGiven, damagesTaken) -> (damagesGiven == 2 || damagesGiven >= oppLife afterParsingInputsState) && damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
         findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
 --  T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
