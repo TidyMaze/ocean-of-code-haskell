@@ -473,31 +473,62 @@ data State =
 
 instance Binary State
 
-findAttackSequence :: Precomputed -> State -> Maybe ([Coord], Int) -> [([Order], [Coord], Int, Int)]
+decrementCooldown powerBought power currentCooldown =
+  if powerBought == power
+    then max 0 (currentCooldown - 1)
+    else currentCooldown
+
+applyOrder :: Order -> State -> State
+applyOrder o@(Move dir (Just powerBought)) state =
+  state
+    { myCoordHistory = newC : myCoordHistory state
+    , myHistory = myHistory state ++ [o]
+    , torpedoCooldown = decrementCooldown powerBought PTorpedo (torpedoCooldown state)
+    , sonarCooldown = decrementCooldown powerBought PSonar (sonarCooldown state)
+    , silenceCooldown = decrementCooldown powerBought PSilence (silenceCooldown state)
+    , mineCooldown = decrementCooldown powerBought PMine (mineCooldown state)
+    }
+  where
+    newC = addDirToCoord (head $ myCoordHistory state) dir
+applyOrder o@(Silence (Just (dir, size))) state = state {myCoordHistory = reverse (coordsBetween curCoord newC) ++ myCoordHistory state}
+  where
+    curCoord = head $ myCoordHistory state
+    newC = foldl' addDirToCoord curCoord (replicate size dir)
+
+getMovingOnce precomputed state = map prepareAction neighbors
+  where
+    curCoord = head $ myCoordHistory state
+    visitedSet = S.fromList $ myCoordHistory state
+    prepareAction (d, newC) = ([newAction], applyOrder newAction state)
+      where
+        newAction = Move d (Just powerBought)
+    powerBought =
+      if torpedoCooldown state > 0
+        then PTorpedo
+        else getPowerToBuy state
+    neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet
+
+getSilencingOnce precomputed state =
+  if silenceCooldown state > 0
+    then []
+    else let visitedSet = S.fromList $ myCoordHistory state
+             curCoord = head $ myCoordHistory state
+             prepareAction (newC, d, size) = ([newAction], applyOrder newAction state)
+               where
+                 newAction = Silence (Just (d, size))
+          in map prepareAction $ toList $ getSilenceRange precomputed visitedSet curCoord
+
+-- TODO: move + silence and silence + move
+findAttackSequence :: Precomputed -> State -> Maybe ([Coord], Int) -> [([Order], State, Int, Int)]
 findAttackSequence _ _ Nothing = []
 findAttackSequence _ _ (Just ([], _)) = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
 findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce)
   where
-    curCoord = safeHead "curCoord3" $ myCoordHistory state
-    visitedSet = S.fromList $ myCoordHistory state
-    notMoving = [([], [curCoord], torpedoCooldown state)]
-    movingOnce = map (\(d, newC) -> ([Move d (Just powerBought)], [newC], updatedCD)) neighbors
-      where
-        powerBought =
-          if torpedoCooldown state > 0
-            then PTorpedo
-            else getPowerToBuy state
-        updatedCD =
-          case powerBought of
-            PTorpedo -> max (torpedoCooldown state - 1) 0
-            _        -> torpedoCooldown state
-        neighbors = getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet
-    silencingOnce =
-      if silenceCooldown state > 0
-        then []
-        else map (\(newC, d, size) -> ([Silence (Just (d, size))], coordsBetween curCoord newC, torpedoCooldown state)) $ toList $ getSilenceRange precomputed visitedSet curCoord
+    notMoving = [([], state)]
+    movingOnce = getMovingOnce precomputed state
+    silencingOnce = getSilencingOnce precomputed state
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
@@ -513,24 +544,25 @@ coordsBetween (Coord fx fy) (Coord tx ty) = res
             else [fy,fy - 1 .. ty]
       ]
 
-findAttackSequenceAfterMove :: Precomputed -> ([Coord], Int) -> [([Order], [Coord], Int)] -> [([Order], [Coord], Int, Int)]
-findAttackSequenceAfterMove precomputed (targets, minDmg) sequences = concatMap getDmg sequences
+findAttackSequenceAfterMove :: Precomputed -> ([Coord], Int) -> [([Order], State)] -> [([Order], State, Int, Int)]
+findAttackSequenceAfterMove precomputed (targets, minDmg) = concatMap getDmg
   where
-    getDmg (orders, newCoords, 0) =
-      map
-        (\c ->
-           let dmg =
-                 case () of
-                   _
-                     | minDmg == 2 -> explosionDamages c (head targets)
-                   _
-                     | c `elem` targets -> minDmg
-                   _ -> 0
-            in (orders ++ [Torpedo c], newCoords, dmg, explosionDamages c curCoord))
-        (filter (\c -> (minDmg == 2 && diagDst c (head targets) <= 1) || c `elem` targets) whereICanShoot)
+    getDmg (orders, state)
+      | torpedoCooldown state == 0 =
+        map
+          (\c ->
+             let dmg =
+                   case () of
+                     _
+                       | minDmg == 2 -> explosionDamages c (head targets)
+                     _
+                       | c `elem` targets -> minDmg
+                     _ -> 0
+              in (orders ++ [Torpedo c], state, dmg, explosionDamages c curCoord))
+          (filter (\c -> (minDmg == 2 && diagDst c (head targets) <= 1) || c `elem` targets) whereICanShoot)
       where
         whereICanShoot = Map.keys $ getTorpedoRange precomputed curCoord
-        curCoord = last newCoords
+        curCoord = head $ myCoordHistory state
     getDmg _ = []
 
 findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] -> [Coord] -> Bool -> ([Order], [Coord], Maybe Order)
@@ -582,7 +614,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   let (!actions, endMyCoordHistory, maybeSonarAction) =
         case attackSeq of
           (x:_) -> trace "rushing" (orders, hist, maybeSonarAction)
-            where (bestSeq, newCoords) = (\(a, b, c, d) -> (a, b)) . safeHead "bestSeq" $ attackSeq
+            where (bestSeq, newState) = (\(a, b, c, d) -> (a, b)) . safeHead "bestSeq" $ attackSeq
                   orders = bestSeq ++ maybeToList (fmap (\(action, _, _, _, _) -> action) maybeMoveFallback)
                   maybeMoveFallback =
                     if any isMoveOrSurface bestSeq
@@ -591,7 +623,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
                   isMoveOrSurface (Move _ _)  = True
                   isMoveOrSurface (Surface _) = True
                   isMoveOrSurface _           = False
-                  hist = reverse newCoords ++ myCoordHistory afterParsingInputsState
+                  hist = myCoordHistory newState
                   maybeSonarAction = Nothing
           [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) (S.toList opponentCandidates) oppFound
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates))
