@@ -358,13 +358,13 @@ safeHead :: String -> [a] -> a
 safeHead msg []     = error ("NO HEAD in " ++ msg)
 safeHead msg (x:xs) = x
 
-getMoveAction :: Precomputed -> State -> Maybe Coord -> (Order, [Coord], Int, Int, Coord)
-getMoveAction precomputed state target = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
+getMoveAction :: Precomputed -> State -> Maybe Coord -> [Coord] -> (Order, [Coord], Int, Int, Coord)
+getMoveAction precomputed state target myCandidates = (action, newMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord)
   where
     (action, newMyCoordHistory, powerBought) =
       case (maybeMoveWithDest, silenceCooldown state) of
         (Just (d, to), 0)
-          | {-isNothing target &&-} length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+          | length myCandidates <= 90 && length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _) -> (Surface Nothing, [], Nothing)
@@ -419,8 +419,8 @@ parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
     parseNew (Sonar (Just sector)) = Just (SonarResult sector (sonarResult == "Y"))
     parseNew _ = Nothing
 
-buildNewOpponentHistory sonarResultAction "NA" = maybeToList sonarResultAction
-buildNewOpponentHistory sonarResultAction opponentOrders = maybeToList sonarResultAction ++ map fst (parseOrders opponentOrders)
+buildNewOpponentHistory :: Maybe Order -> [Order] -> [Order]
+buildNewOpponentHistory sonarResultAction orders = maybeToList sonarResultAction ++ orders
 
 getElapsedTime startTime = do
   endTime <- getCurrentTime
@@ -503,6 +503,7 @@ findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMov
     movingOnce = getMovingOnce precomputed state []
     silencingOnce = getSilencingOnce precomputed state []
     moveSilence = concatMap (\(orders, state') -> getSilencingOnce precomputed state' orders) $ getMovingOnce precomputed state []
+--    silenceMove = concatMap (\(orders, state') -> getMovingOnce precomputed state' orders) $ getSilencingOnce precomputed state []
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
@@ -539,12 +540,12 @@ findAttackSequenceAfterMove precomputed (targets, minDmg) = concatMap getDmg
         curCoord = head $ myCoordHistory state
     getDmg _ = []
 
-findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] -> [Coord] -> Bool -> ([Order], [Coord], Maybe Order)
-findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSetOfShooting opponentCandidates oppFound =
+findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] -> [Coord] -> [Coord] -> Bool -> ([Order], [Coord], Maybe Order)
+findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSetOfShooting opponentCandidates myCandidates oppFound =
   (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
   where
     moveTarget = oppSetOfShooting >>= minByOption (manhattan $ head $ myCoordHistory afterParsingInputsState)
-    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState moveTarget
+    (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState moveTarget myCandidates
     stateAfterMove = afterParsingInputsState {myCoordHistory = afterCoord : endMyCoordHistory, torpedoCooldown = updatedTorpedoCooldown, sonarCooldown = updatedSonarCooldown}
     maybeTorpedoAction = Nothing
     maybeSonarAction = getSonarAction updatedSonarCooldown opponentCandidates
@@ -581,7 +582,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   debug ("I think you are at " ++ show maybeOppListOfShooting)
   debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
-        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven - damagesTaken, length orders)) $
+        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
         filter (\(orders, newCoords, damagesGiven, damagesTaken) -> {-(damagesGiven == 2 || damagesGiven >= oppLife afterParsingInputsState || myLife afterParsingInputsState >= 2 + oppLife afterParsingInputsState) &&-} damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
         findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
 --  T.traceShowM $ "attackSeq" ++ show attackSeq
@@ -599,11 +600,16 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
                   isMoveOrSurface _           = False
                   hist = myCoordHistory newState
                   maybeSonarAction = Nothing
-          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) (S.toList opponentCandidates) oppFound
+          [] -> trace "deprecated" findActionsDeprecated precomputed afterParsingInputsState (fmap fst maybeMyListOfShooting) (fmap fst maybeOppListOfShooting) (S.toList opponentCandidates) (S.toList myCandidates) oppFound
   let message = Msg (show (length opponentCandidates) ++ "/" ++ show (length myCandidates))
   let !resState = afterParsingInputsState {myCoordHistory = endMyCoordHistory, myHistory = actions, lastSonarAction = maybeSonarAction}
   let !out = intercalate "|" (map showOrder (actions ++ [message]))
   return (out, resState, myCandidates, opponentCandidates)
+
+getSonar :: [Order] -> Maybe Order
+getSonar [] = Nothing
+getSonar (s@(Sonar _): xs) = Just s
+getSonar (_: xs) = getSonar xs
 
 gameLoop :: Precomputed -> State -> S.Set Coord -> S.Set Coord -> IO ()
 gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
@@ -621,10 +627,12 @@ gameLoop !precomputed !oldState !myOldCandidates !oppOldCandidates = do
   let sonarresult = input_line :: String
   opponentOrders <- getLine
   startTime <- getCurrentTime
+  let parsedOppOrders = if opponentOrders == "NA" then [] else map fst (parseOrders opponentOrders)
   let afterParsingInputsState =
         oldState
           { myCoordHistory = nub $ Coord x y : myCoordHistory oldState
-          , opponentHistory = buildNewOpponentHistory (parseSonarResult (lastSonarAction oldState) sonarresult) opponentOrders
+          , myHistory = myHistory oldState ++ maybe [] (\(Sonar (Just sector)) -> [SonarResult sector (sector == sectorFromCoord (Coord x y))]) (getSonar parsedOppOrders)
+          , opponentHistory = buildNewOpponentHistory (parseSonarResult (lastSonarAction oldState) sonarresult) parsedOppOrders
           , torpedoCooldown = torpedocooldown
           , sonarCooldown = sonarcooldown
           , silenceCooldown = silencecooldown
