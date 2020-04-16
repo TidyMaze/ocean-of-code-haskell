@@ -497,13 +497,12 @@ findAttackSequence _ _ Nothing = []
 findAttackSequence _ _ (Just ([], _)) = []
 findAttackSequence _ state _
   | torpedoCooldown state > 1 = []
-findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce ++ moveSilence {- ++ silenceMove -})
+findAttackSequence precomputed state (Just targets) = findAttackSequenceAfterMove precomputed targets (notMoving ++ movingOnce ++ silencingOnce ++ moveSilence)
   where
     notMoving = [([], state)]
     movingOnce = getMovingOnce precomputed state []
     silencingOnce = getSilencingOnce precomputed state []
     moveSilence = concatMap (\(orders, state') -> getSilencingOnce precomputed state' orders) $ getMovingOnce precomputed state []
-  {- silenceMove = concatMap (\(orders, state') -> getMovingOnce precomputed state' orders) $ getSilencingOnce precomputed state [] -}
 
 coordsBetween (Coord fx fy) (Coord tx ty) = res
   where
@@ -582,7 +581,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   debug ("I think you are at " ++ show maybeOppListOfShooting)
   debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
-        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
+        sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven - damagesTaken, length orders)) $
         filter (\(orders, newCoords, damagesGiven, damagesTaken) -> {-(damagesGiven == 2 || damagesGiven >= oppLife afterParsingInputsState || myLife afterParsingInputsState >= 2 + oppLife afterParsingInputsState) &&-} damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
         findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
 --  T.traceShowM $ "attackSeq" ++ show attackSeq
