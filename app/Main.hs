@@ -364,7 +364,7 @@ getMoveAction precomputed state target = (action, newMyCoordHistory, updatedTorp
     (action, newMyCoordHistory, powerBought) =
       case (maybeMoveWithDest, silenceCooldown state) of
         (Just (d, to), 0)
-          | {- isNothing target && -} length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 0 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+          | isNothing target && length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _) -> (Surface Nothing, [], Nothing)
@@ -409,9 +409,9 @@ getSonarAction :: Int -> [Coord] -> Maybe Order
 getSonarAction cooldown _
   | cooldown > 0 = Nothing
 getSonarAction _ [] = Nothing
-getSonarAction _ candidates = Just (Sonar (Just (fst biggestSector)))
+getSonarAction _ candidates = if length biggestSectors < 2 then Nothing else Just (Sonar (Just (fst $ head biggestSectors)))
   where
-    biggestSector = maximumBy (comparing (length . snd)) countedCandidatesBySector
+    biggestSectors = sortOn (negate . length . snd) countedCandidatesBySector
     countedCandidatesBySector = Map.assocs (Main.groupBy sectorFromCoord candidates)
 
 parseSonarResult lastSonarAction sonarResult = lastSonarAction >>= parseNew
@@ -583,7 +583,7 @@ findOrders precomputed afterParsingInputsState !myOldCandidates !oppOldCandidate
   debug ("You think I'm at " ++ show maybeMyListOfShooting)
   let attackSeq =
         sortOn (\(orders, newCoords, damagesGiven, damagesTaken) -> (-damagesGiven, damagesTaken, length orders)) $
-        filter (\(orders, newCoords, damagesGiven, damagesTaken) -> {- (damagesGiven == 2 || damagesGiven >= oppLife afterParsingInputsState) && -} damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
+        filter (\(orders, newCoords, damagesGiven, damagesTaken) -> (damagesGiven == 2 || damagesGiven >= oppLife afterParsingInputsState || myLife afterParsingInputsState >= 2 + oppLife afterParsingInputsState) && damagesTaken < myLife afterParsingInputsState && (damagesGiven > damagesTaken || damagesGiven >= oppLife afterParsingInputsState)) $
         findAttackSequence precomputed afterParsingInputsState maybeOppListOfShooting
 --  T.traceShowM $ "attackSeq" ++ show attackSeq
   let (!actions, endMyCoordHistory, maybeSonarAction) =
