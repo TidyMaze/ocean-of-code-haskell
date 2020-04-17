@@ -192,7 +192,7 @@ getPowerToBuy :: State -> Power
 getPowerToBuy state = maybe PTorpedo fst3 found
   where
     fst3 (a, b, c) = a
-    buyList = [(PTorpedo, torpedoCooldown state, 3), (PSilence, silenceCooldown state, 6), (PSonar, sonarCooldown state, 4), (PMine, mineCooldown state, 3)]
+    buyList = [(PTorpedo, torpedoCooldown state, 3), (PSonar, sonarCooldown state, 4), (PSilence, silenceCooldown state, 6), (PMine, mineCooldown state, 3)]
     found = find (\(power, count, max) -> count > 0) buyList :: Maybe (Power, Int, Int)
 
 findStartCoord :: [Coord] -> Int -> Int -> Coord
