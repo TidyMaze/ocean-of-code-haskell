@@ -225,7 +225,7 @@ getSilenceRange precomputed visitedSet c@(Coord cX cY) = (c, N, 0) : concat [inN
     valid (coord, dir, index) = index <= 4 && not (landMap precomputed V.! y coord V.! x coord) && coord `S.notMember` visitedSet
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> [(Coord, S.Set Coord)]
-execOrder precomputed visited (Move direction _) c = singleInSeqIf (isWaterCoord (landMap precomputed) newC) newC visited
+execOrder precomputed visited (Move direction _) c = singleInSeqIf (isWaterCoord (landMap precomputed) newC && newC `S.notMember` visited) newC visited
   where
     newC = addDirToCoord c direction
 execOrder precomputed visited (Torpedo t) c = singleInSeqIf (inTorpedoRange precomputed c t) c visited
@@ -361,7 +361,7 @@ getMoveAction precomputed state target myCandidates = (action, newMyCoordHistory
     (action, newMyCoordHistory, powerBought) =
       case (maybeMoveWithDest, silenceCooldown state) of
         (Just (d, to), 0)
-          | length myCandidates <= 20 && length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
+          | length myCandidates <= 10 && length (getUnvisitedWaterNeighborsDir (landMap precomputed) curCoord visitedSet) > 1 -> (Silence (Just (d, 1)), myCoordHistory state, Nothing)
         (Just (d, to), _) -> (Move d (Just powerToBuy), myCoordHistory state, Just powerToBuy)
           where powerToBuy = getPowerToBuy state
         (Nothing, _) -> (Surface Nothing, [], Nothing)
