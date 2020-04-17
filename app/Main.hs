@@ -550,8 +550,8 @@ findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSet
 
 findCenterOfExplosion :: Precomputed -> [Coord] -> Maybe ([Coord], Int)
 findCenterOfExplosion _ [x] = Just ([x], 2)
-findCenterOfExplosion _ coords
-  | length coords > 9 = Nothing
+findCenterOfExplosion _ [] = Nothing
+findCenterOfExplosion _ coords | length coords > 9 = Nothing
 findCenterOfExplosion precomputed coords = asum [fromCandidates, fromAnyWater]
   where
     fromCandidates = mfilter (not . null . fst) (Just (filter (\c -> all (inExplosionRange c) coords) coords, 1))
