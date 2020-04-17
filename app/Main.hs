@@ -229,7 +229,7 @@ execOrder precomputed visited (Move direction _) c = singleInSeqIf (isWaterCoord
   where
     newC = addDirToCoord c direction
 execOrder precomputed visited (Torpedo t) c = singleInSeqIf (inTorpedoRange precomputed c t) c visited
-execOrder _ visited (Surface (Just sector)) c = singleInSeqIf (sector == sectorFromCoord c) c visited
+execOrder _ visited (Surface (Just sector)) c = [(c, S.singleton c) | sector == sectorFromCoord c]
 execOrder _ visited (SonarResult sector True) c = singleInSeqIf (sector == sectorFromCoord c) c visited
 execOrder _ visited (SonarResult sector False) c = singleInSeqIf (sector /= sectorFromCoord c) c visited
 execOrder precomputed visited (Silence _) c = map (\(d, _, _) -> (d, S.union (S.fromList $ coordsBetween c d) visited)) $ getSilenceRange precomputed visited c
