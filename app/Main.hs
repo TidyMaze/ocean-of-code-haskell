@@ -218,10 +218,10 @@ enumerate = zip [0 ..]
 getSilenceRange :: Precomputed -> S.Set Coord -> Coord -> [(Coord, Direction, Int)]
 getSilenceRange precomputed visitedSet c@(Coord cX cY) = (c, N, 0) : concat [inNorth, inSouth, inWest, inEast]
   where
-    inNorth = takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i)) $ enumerate [cY - 1,cY - 2 .. 0]
-    inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i)) $ enumerate [cY + 1,cY + 2 .. 14]
-    inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i)) $ enumerate [cX - 1,cX - 2 .. 0]
-    inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i)) $ enumerate [cX + 1,cX + 2 .. 14]
+    inNorth = takeWhile valid $ map (\(i, y) -> (Coord cX y, N, i + 1)) $ enumerate [cY - 1,cY - 2 .. 0]
+    inSouth = takeWhile valid $ map (\(i, y) -> (Coord cX y, S, i + 1)) $ enumerate [cY + 1,cY + 2 .. 14]
+    inWest = takeWhile valid $ map (\(i, x) -> (Coord x cY, W, i + 1)) $ enumerate [cX - 1,cX - 2 .. 0]
+    inEast = takeWhile valid $ map (\(i, x) -> (Coord x cY, E, i + 1)) $ enumerate [cX + 1,cX + 2 .. 14]
     valid (coord, dir, index) = index < 4 && not (landMap precomputed V.! y coord V.! x coord) && coord `S.notMember` visitedSet
 
 execOrder :: Precomputed -> S.Set Coord -> Order -> Coord -> [(Coord, S.Set Coord)]
