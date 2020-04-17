@@ -207,7 +207,7 @@ findPositionFromHistory !precomputed !lastCandidates !history = foldl' (execOrde
 execOrderBulk :: Precomputed -> [(Coord, S.Set Coord)] -> Order -> [(Coord, S.Set Coord)]
 execOrderBulk !precomputed !candidates !action = foldl' mergeCoordinates [] candidates
   where
-    mergeCoordinates !acc (!candidate, visited) = acc ++ execOrder precomputed visited action candidate
+    mergeCoordinates !acc (!candidate, visited) = execOrder precomputed visited action candidate ++ acc
 
 singleInSeqIf :: Bool -> Coord -> S.Set Coord -> [(Coord, S.Set Coord)]
 singleInSeqIf !cond coord visited = [(coord, S.insert coord visited) | cond]
@@ -539,7 +539,7 @@ findAttackSequenceAfterMove precomputed (targets, minDmg) = concatMap getDmg
 
 findActionsDeprecated :: Precomputed -> State -> Maybe [Coord] -> Maybe [Coord] -> [Coord] -> [Coord] -> Bool -> ([Order], [Coord], Maybe Order)
 findActionsDeprecated precomputed afterParsingInputsState mySetOfShooting oppSetOfShooting opponentCandidates myCandidates oppFound =
-  (moveAction : maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction, endMyCoordHistory, maybeSonarAction)
+  (moveAction : (maybeToList maybeTorpedoAction ++ maybeToList maybeSonarAction), endMyCoordHistory, maybeSonarAction)
   where
     moveTarget = oppSetOfShooting >>= minByOption (manhattan $ head $ myCoordHistory afterParsingInputsState)
     (moveAction, endMyCoordHistory, updatedTorpedoCooldown, updatedSonarCooldown, afterCoord) = getMoveAction precomputed afterParsingInputsState moveTarget myCandidates
