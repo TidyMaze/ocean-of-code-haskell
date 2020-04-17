@@ -205,9 +205,9 @@ findPositionFromHistory :: Precomputed -> [(Coord, S.Set Coord)] -> [Order] -> [
 findPositionFromHistory !precomputed !lastCandidates !history = foldl' (execOrderBulk precomputed) lastCandidates history
 
 execOrderBulk :: Precomputed -> [(Coord, S.Set Coord)] -> Order -> [(Coord, S.Set Coord)]
-execOrderBulk !precomputed !candidates !action = foldl' mergeCoordinates [] candidates
+execOrderBulk !precomputed !candidates !action = concatMap mergeCoordinates candidates
   where
-    mergeCoordinates !acc (!candidate, visited) = execOrder precomputed visited action candidate ++ acc
+    mergeCoordinates (!candidate, visited) = execOrder precomputed visited action candidate
 
 singleInSeqIf :: Bool -> Coord -> S.Set Coord -> [(Coord, S.Set Coord)]
 singleInSeqIf !cond coord visited = [(coord, S.insert coord visited) | cond]
